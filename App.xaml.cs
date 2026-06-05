@@ -1,6 +1,9 @@
 ﻿using System.Windows;
 using System.Windows.Threading;
 using Serilog;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using SmartEdgeHMI.Extensions;
 
 namespace SmartEdgeHMI
 {
@@ -8,7 +11,8 @@ namespace SmartEdgeHMI
     {
         private static Mutex? _appMutex;
         private const string AppGuid = "Global\\SmartEdgeHMI_Unique_Application_Mutex_Guid_2026";
-
+        public static IServiceProvider ServiceProvider { get; private set; } = null!;
+        public static IConfiguration Configuration { get; private set; } = null!;
         public App()
         {
             ConfigureLogging();
@@ -50,6 +54,18 @@ namespace SmartEdgeHMI
             DispatcherUnhandledException += App_DispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+
+            // 全局配置
+            Configuration = new ConfigurationBuilder()
+                .SetBasePath(AppContext.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .Build();
+
+            // 注册并构建服务容器
+            ServiceProvider = new ServiceCollection()
+                .AddSingleton(Configuration)
+                .AddAppServices(Configuration)
+                .BuildServiceProvider();
 
             Log.Information("SmartEdgeHMI 应用程序已成功启动。");
         }

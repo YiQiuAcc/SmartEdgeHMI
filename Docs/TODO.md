@@ -13,7 +13,7 @@
 ### 阶段二：底层通信驱动层 (Day 2)
 
 - [x] **定义通信契约** ：在 `Models` 中定义 `DeviceTelemetry`（遥测数据）和 `DeviceCommand`（下发指令）。
-- [ ] **编写 SerialPortService** ：
+- [x] **编写 SerialPortService** ：
   - 封装扫描本机可用 COM 口、安全打开/关闭串口的方法。
   - **核心** ：开启后台长时间运行的 `Task` 监听串口，通过 `WeakReferenceMessenger` 异步广播 JSON 数据。
 - [ ] **实现双向控制** ：实现 `SendCommandAsync`，将 `DeviceCommand` 对象序列化为字节流写入串口。
