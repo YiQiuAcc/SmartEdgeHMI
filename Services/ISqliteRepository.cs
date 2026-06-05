@@ -1,3 +1,4 @@
 namespace SmartEdgeHMI.Services;
 
-public interface ISqliteRepository { }
+public interface ISqliteRepository
+{ }

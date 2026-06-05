@@ -1,14 +1,121 @@
-﻿<Window x:Class="SmartEdgeHMI.Views.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:SmartEdgeHMI"
-        mc:Ignorable="d"
-        Title="MainWindow"
-        Height="450"
-        Width="800">
-    <Grid>
+<Window
+    x:Class="SmartEdgeHMI.Views.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="clr-namespace:SmartEdgeHMI.ViewModels"
+    Title="MainWindow"
+    Width="800"
+    Height="450"
+    d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
+    mc:Ignorable="d">
 
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="200" />
+        </Grid.RowDefinitions>
+
+        <StackPanel
+            Grid.Row="0"
+            Margin="0,0,0,10"
+            Orientation="Horizontal">
+            <Ellipse
+                Width="16"
+                Height="16"
+                Margin="0,0,10,0"
+                Fill="{Binding StatusColor, FallbackValue=Red}" />
+
+            <TextBlock
+                Margin="0,0,20,0"
+                VerticalAlignment="Center"
+                Text="{Binding StatusText, FallbackValue=未连接}" />
+
+            <TextBlock
+                Margin="0,0,5,0"
+                VerticalAlignment="Center"
+                Text="COM口:" />
+
+            <ComboBox
+                Width="80"
+                Margin="0,0,15,0"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding AvailablePorts}"
+                SelectedItem="{Binding SelectedPort, Mode=TwoWay}" />
+
+            <TextBlock
+                Margin="0,0,5,0"
+                VerticalAlignment="Center"
+                Text="波特率:" />
+
+            <ComboBox
+                Width="80"
+                Margin="0,0,15,0"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding AvailableBaudRate}"
+                SelectedItem="{Binding SelectedBaudRate, Mode=TwoWay}" />
+
+            <Button
+                Width="100"
+                Padding="5"
+                Content="连接 / 断开" />
+        </StackPanel>
+
+        <Border
+            Grid.Row="1"
+            Background="#2E2E2E"
+            CornerRadius="5">
+            <TextBlock
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Foreground="White"
+                Text="这里放置 ScottPlot.WpfPlot 控件" />
+        </Border>
+
+        <Grid Grid.Row="2" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="250" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel
+                Grid.Column="0"
+                Margin="0,0,10,0"
+                Orientation="Vertical">
+                <TextBlock
+                    Margin="0,0,0,10"
+                    FontWeight="Bold"
+                    Text="温度报警阈值设置" />
+
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="当前值: " />
+                    <TextBlock Text="{Binding ElementName=TempSlider, Path=Value}" />
+                    <TextBlock Text=" °C" />
+                </StackPanel>
+                <Slider
+                    x:Name="TempSlider"
+                    Margin="0,10,0,20"
+                    IsSnapToTickEnabled="True"
+                    LargeChange="10"
+                    Maximum="100"
+                    Minimum="0"
+                    SmallChange="1"
+                    TickFrequency="1"
+                    Value="{Binding AlarmThreshold, Mode=TwoWay, FallbackValue=50}" />
+
+                <Button
+                    Height="40"
+                    Background="DarkRed"
+                    Content="⚠️ 设备紧急复位 (Reset)"
+                    Foreground="White" />
+            </StackPanel>
+
+            <DataGrid
+                Grid.Column="1"
+                AutoGenerateColumns="True"
+                HeadersVisibility="Column" />
+        </Grid>
     </Grid>
 </Window>

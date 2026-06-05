@@ -3,9 +3,7 @@ using SmartEdgeHMI.Constants;
 
 namespace SmartEdgeHMI.Models;
 
-/// <summary>
-/// 下发指令
-/// </summary>
+/// <summary>下发指令</summary>
 public class DeviceCommand
 {
     public required Guid CommandId { get; set; }

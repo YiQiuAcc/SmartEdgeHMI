@@ -1,8 +1,6 @@
 namespace SmartEdgeHMI.Constants;
 
-/// <summary>
-/// 设备数据质量码
-/// </summary>
+/// <summary>设备数据质量码</summary>
 public enum QualityCode
 {
     Good = 0,

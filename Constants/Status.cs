@@ -1,8 +1,6 @@
 namespace SmartEdgeHMI.Constants;
 
-/// <summary>
-/// 下游设备状态
-/// </summary>
+/// <summary>下游设备状态</summary>
 public enum Status
 {
     Online = 0,

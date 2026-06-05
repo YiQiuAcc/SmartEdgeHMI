@@ -2,21 +2,21 @@
 
 ### 阶段一：基础设施与架构搭建 (Day 1) [已完成]
 
-- [x] **初始化仓库** ：创建 `.NET 8 WPF` 项目，配置 `.gitignore`。
-- [x] **引入核心 NuGet 包** ：
+- [X] **初始化仓库** ：创建 `.NET 8 WPF` 项目，配置 `.gitignore`。
+- [X] **引入核心 NuGet 包** ：
   - `CommunityToolkit.Mvvm`、`ScottPlot.WPF`、`Serilog`、`Dapper` 等。
-- [x] **搭建 MVVM 骨架** ：划分 Constants, Models, Services, ViewModels, Views 目录。
-- [x] **工业级安全策略配置** ：
+- [X] **搭建 MVVM 骨架** ：划分 Constants, Models, Services, ViewModels, Views 目录。
+- [X] **工业级安全策略配置** ：
   - 利用 `Mutex` 实现全局单例进程锁，防止工控机重复启动导致硬件端口冲突。
   - 接管全局未处理异常（UI线程/后台线程/Task线程三级捕获），保障系统不盲目闪退。
 
 ### 阶段二：底层通信驱动层 (Day 2)
 
-- [x] **定义通信契约** ：在 `Models` 中定义 `DeviceTelemetry`（遥测数据）和 `DeviceCommand`（下发指令）。
-- [x] **编写 SerialPortService** ：
+- [X] **定义通信契约** ：在 `Models` 中定义 `DeviceTelemetry`（遥测数据）和 `DeviceCommand`（下发指令）。
+- [X] **编写 SerialPortService** ：
   - 封装扫描本机可用 COM 口、安全打开/关闭串口的方法。
   - **核心** ：开启后台长时间运行的 `Task` 监听串口，通过 `WeakReferenceMessenger` 异步广播 JSON 数据。
-- [ ] **实现双向控制** ：实现 `SendCommandAsync`，将 `DeviceCommand` 对象序列化为字节流写入串口。
+- [X] **实现双向控制** ：实现 `SendCommandAsync`，将 `DeviceCommand` 对象序列化为字节流写入串口。
 - [ ] **🚀【高级进阶提示】面向未来的工业标准驱动升级**：
   - _提示_：基础版跑通后，可扩展一个 `ModbusService`，手写 **CRC16 校验算法**，实现对标准 PLC（西门子/汇川等）的寄存器（Holding Registers）读写，展现“字节级操纵底层”的能力。
   - _提示_：利用 .NET 8 的 `ReadOnlySpan<byte>` 与内存池 `ArrayPool` 处理字节流，解决高频高并发下的**粘包断包**问题，主打“零分配内存（Zero-Allocation）与极低 GC 压力”。

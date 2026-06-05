@@ -1,0 +1,121 @@
+# 顶层配置文件，停止向上查找
+root = true
+
+# ==========================================
+# 1. 全局跨平台基础设置
+# ==========================================
+[*]
+charset = utf-8
+indent_style = space
+# 默认大部分文件使用 4 个空格
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+end_of_line = crlf
+
+# ==========================================
+# 2. Web 前端及配置文件 (ASP.NET 相关)
+# ==========================================
+[*.{json,xml,yml,yaml,html,css,js,ts,jsx,tsx,cshtml,razor}]
+indent_size = 2
+
+# ==========================================
+# 3. WPF 与 C# 代码文件设置
+# ==========================================
+[*.{cs,xaml}]
+indent_size = 4
+
+# ==========================================
+# 4. C# 基础代码风格 (Code Style)
+# ==========================================
+[*.cs]
+# 排序 using 引用，System 开头的放在最前面
+dotnet_sort_system_directives_first = true
+# 推荐使用文件范围的命名空间 (C# 10+特性，如 namespace QuantClient.Core;)
+csharp_style_namespace_declarations = file_scoped:warning
+
+# --- 'var' 关键字的使用偏好 ---
+# 内置类型(int, string等)不推荐用 var
+csharp_style_var_for_built_in_types = false:suggestion
+# 类型明显时推荐使用 var (如 var obj = new Object();)
+csharp_style_var_when_type_is_apparent = true:suggestion
+# 其他情况不推荐使用 var
+csharp_style_var_elsewhere = false:silent
+
+# --- 表达式主体成员 (=>) ---
+# 方法单行时允许使用 =>
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+# 属性、局部函数、构造函数等
+csharp_style_expression_bodied_properties = true:silent
+csharp_style_expression_bodied_local_functions = true:silent
+
+# --- 代码块与大括号排版 (Allman 风格) ---
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+
+# --- this. 和 Null 检查 ---
+# 避免不必要的 this.
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+# 首选 ?? 操作符
+csharp_style_coalesce_expression = true:suggestion
+# 首选 ?. 操作符
+csharp_style_null_propagation = true:suggestion
+# 首选 is null 判断
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+
+# --- 修饰符顺序 ---
+csharp_preferred_modifier_order = public,private,protected,internal,file,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,required,volatile,async:suggestion
+
+# ==========================================
+# 5. C# 命名规范 (Naming Conventions)
+# ==========================================
+# 接口必须以 I 开头 (例如 IMarketDataService)
+dotnet_naming_rule.interface_should_be_begins_with_i.severity = warning
+dotnet_naming_rule.interface_should_be_begins_with_i.symbols = interface
+dotnet_naming_rule.interface_should_be_begins_with_i.style = begins_with_i
+dotnet_naming_symbols.interface.applicable_kinds = interface
+dotnet_naming_symbols.interface.applicable_accessibilities = public, internal, private, protected, protected_internal, private_protected
+dotnet_naming_style.begins_with_i.required_prefix = I
+dotnet_naming_style.begins_with_i.capitalization = pascal_case
+
+# 类、结构、方法、属性必须使用 PascalCase (大驼峰)
+dotnet_naming_rule.types_should_be_pascal_case.severity = warning
+dotnet_naming_rule.types_should_be_pascal_case.symbols = types
+dotnet_naming_rule.types_should_be_pascal_case.style = pascal_case
+dotnet_naming_symbols.types.applicable_kinds = class, struct, interface, enum, method, property, event, delegate
+dotnet_naming_symbols.types.applicable_accessibilities = *
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+# 内部和私有字段必须以 _ 开头，且为 camelCase (例如 _marketDataService)
+dotnet_naming_rule.private_or_internal_field_should_be_begins_with__.severity = warning
+dotnet_naming_rule.private_or_internal_field_should_be_begins_with__.symbols = private_or_internal_field
+dotnet_naming_rule.private_or_internal_field_should_be_begins_with__.style = begins_with__
+dotnet_naming_symbols.private_or_internal_field.applicable_kinds = field
+dotnet_naming_symbols.private_or_internal_field.applicable_accessibilities = internal, private, private_protected
+dotnet_naming_style.begins_with__.required_prefix = _
+dotnet_naming_style.begins_with__.capitalization = camel_case
+
+# 局部变量和参数必须使用 camelCase (小驼峰)
+dotnet_naming_rule.locals_should_be_camel_case.severity = suggestion
+dotnet_naming_rule.locals_should_be_camel_case.symbols = locals_and_parameters
+dotnet_naming_rule.locals_should_be_camel_case.style = camel_case
+dotnet_naming_symbols.locals_and_parameters.applicable_kinds = parameter, local
+dotnet_naming_symbols.locals_and_parameters.applicable_accessibilities = *
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+# 常量必须使用 PascalCase (大驼峰命名法)
+dotnet_naming_rule.constant_fields_should_be_pascal_case.severity = warning
+dotnet_naming_rule.constant_fields_should_be_pascal_case.symbols = constant_fields
+dotnet_naming_rule.constant_fields_should_be_pascal_case.style = pascal_case
+
+# 定义常量：所有的 const field
+dotnet_naming_symbols.constant_fields.applicable_kinds = field
+dotnet_naming_symbols.constant_fields.applicable_accessibilities = *
+dotnet_naming_symbols.constant_fields.required_modifiers = const

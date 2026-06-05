@@ -1,8 +1,6 @@
 namespace SmartEdgeHMI.Constants;
 
-/// <summary>
-/// HMI 下发给边缘网关的主动控制动作
-/// </summary>
+/// <summary>HMI 下发给边缘网关的主动控制动作</summary>
 public enum DeviceAction
 {
     Start = 1,

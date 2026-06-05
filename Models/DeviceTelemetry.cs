@@ -2,9 +2,7 @@ using SmartEdgeHMI.Constants;
 
 namespace SmartEdgeHMI.Models;
 
-/// <summary>
-/// 遥测数据
-/// </summary>
+/// <summary>遥测数据</summary>
 public class DeviceTelemetry
 {
     public required string DeviceId { get; set; }
@@ -14,6 +12,7 @@ public class DeviceTelemetry
     public QualityCode QualityCode { get; set; }
     public Status Status { get; set; }
     public ErrorCode ErrorCode { get; set; }
+
     // 生产数据
     public double Temperature { get; set; }
     public long OutputCount { get; set; }

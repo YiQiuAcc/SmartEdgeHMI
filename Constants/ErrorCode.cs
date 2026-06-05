@@ -1,8 +1,6 @@
 namespace SmartEdgeHMI.Constants;
 
-/// <summary>
-/// 下游设备错误码
-/// </summary>
+/// <summary>下游设备错误码</summary>
 public enum ErrorCode
 {
     NoError = 0,

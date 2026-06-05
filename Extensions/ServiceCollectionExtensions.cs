@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SmartEdgeHMI.Services;
+using SmartEdgeHMI.ViewModels;
 using SmartEdgeHMI.Views;
 
 namespace SmartEdgeHMI.Extensions;
@@ -11,9 +12,8 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<ISerialPortService, SerialPortService>();
         services.AddSingleton<ISqliteRepository, SqliteRepository>();
-        // services.AddSingleton<MainViewModel>();
-        // services.AddSingleton<DashboardViewModel>();
-        // services.AddTransient<HistoryViewModel>();
+        services.AddSingleton<MainViewModel>();
+        services.AddSingleton(config);
         // services.AddTransient<SettingsViewModel>();
         services.AddSingleton<MainWindow>();
         return services;
