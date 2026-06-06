@@ -5,7 +5,7 @@ namespace SmartEdgeHMI.Models;
 /// <summary>遥测数据</summary>
 public class DeviceTelemetry
 {
-    public required string DeviceId { get; set; }
+    public string DeviceId { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
 
     public bool IsOnline { get; set; }

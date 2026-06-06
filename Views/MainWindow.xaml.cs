@@ -9,24 +9,22 @@ namespace SmartEdgeHMI.Views;
 
 public partial class MainWindow : Window, IRecipient<PlotUpdateMessage>
 {
-    private ScottPlot.Plottables.DataStreamer? _streamer;
+    private readonly Dictionary<string, ScottPlot.Plottables.DataStreamer> _streamers = [];
+    private static readonly Color[] _streamerColors = [Colors.Cyan, Colors.Orange];
 
     public MainWindow(IServiceProvider serviceProvider)
     {
         InitializeComponent();
         InitializePlot();
         DataContext = serviceProvider.GetService<MainViewModel>();
-        WeakReferenceMessenger.Default.Register(this);
+        WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
     private void InitializePlot()
     {
-        _streamer = DataPlot.Plot.Add.DataStreamer(100);
-        _streamer.Color = Colors.Blue;
-        _streamer.LineWidth = 2;
         DataPlot.Plot.FigureBackground.Color = Color.FromHex("#2E2E2E");
         DataPlot.Plot.DataBackground.Color = Color.FromHex("#2E2E2E");
-        DataPlot.Plot.Axes.Color(Colors.White); // 坐标轴变成白色
+        DataPlot.Plot.Axes.Color(Colors.White);
         DataPlot.Refresh();
     }
 
@@ -34,9 +32,16 @@ public partial class MainWindow : Window, IRecipient<PlotUpdateMessage>
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
-            // 往流里追加新温度
-            _streamer?.Add(message.Temperature);
-            // 刷新图表
+            if (!_streamers.TryGetValue(message.PortName, out var streamer))
+            {
+                streamer = DataPlot.Plot.Add.DataStreamer(100);
+                streamer.LineWidth = 2;
+                streamer.Color = _streamerColors[_streamers.Count % _streamerColors.Length];
+                _streamers[message.PortName] = streamer;
+                DataPlot.Plot.Axes.AutoScale();
+            }
+
+            streamer.Add(message.Temperature);
             DataPlot.Refresh();
         });
     }

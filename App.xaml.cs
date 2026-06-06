@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using SmartEdgeHMI.Extensions;
+using SmartEdgeHMI.Services;
 using SmartEdgeHMI.Views;
 
 namespace SmartEdgeHMI;
@@ -38,6 +39,7 @@ public partial class App : Application
                 fileSizeLimitBytes: 10 * 1024 * 1024,
                 rollOnFileSizeLimit: true
             ))
+            .WriteTo.Sink(new WpfSerilogSink())
             .CreateLogger();
     }
 

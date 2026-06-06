@@ -19,58 +19,44 @@ public class SerialPortService : ISerialPortService
 
     public void OpenPort(string portName, int baudRate = 115200)
     {
-        // 避免重复打开
         if (_activePorts.ContainsKey(portName)) return;
-        try
-        {
-            SerialPort serialPort = new(portName, baudRate)
-            {
-                ReadTimeout = 500,
-                WriteTimeout = 500
-            };
 
-            var cts = new CancellationTokenSource();
-            CancellationToken token = cts.Token;
-            serialPort.Open();
-            if (_activePorts.TryAdd(portName, (serialPort, cts)))
+        SerialPort serialPort = new(portName, baudRate)
+        {
+            ReadTimeout = 500,
+            WriteTimeout = 500
+        };
+
+        var cts = new CancellationTokenSource();
+        CancellationToken token = cts.Token;
+        serialPort.Open();
+
+        if (_activePorts.TryAdd(portName, (serialPort, cts)))
+        {
+            Task.Factory.StartNew(() =>
             {
-                Task.Factory.StartNew(() =>
+                try
                 {
-                    try
+                    while (!token.IsCancellationRequested)
                     {
-                        while (!token.IsCancellationRequested)
+                        try
                         {
-                            try
+                            var portMessage = serialPort.ReadLine();
+                            if (!string.IsNullOrWhiteSpace(portMessage))
                             {
-                                var portMessage = serialPort.ReadLine();
-                                if (!string.IsNullOrWhiteSpace(portMessage))
-                                {
-                                    WeakReferenceMessenger.Default.Send(new TelemetryDataMessage(portMessage));
-                                }
+                                WeakReferenceMessenger.Default.Send(new TelemetryDataMessage(portName, portMessage));
                             }
-                            catch (TimeoutException) { }
                         }
+                        catch (TimeoutException) { }
                     }
-                    catch (ObjectDisposedException) { }
-                    catch (IOException) { }
-                    catch (Exception ex)
-                    {
-                        Log.Error(ex, "Unexpected error in listening task for port {PortName}", portName);
-                    }
-                }, token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            }
-        }
-        catch (UnauthorizedAccessException e)
-        {
-            Log.Error(e, "Unauthorized access to serial port {PortName}", portName);
-        }
-        catch (IOException e)
-        {
-            Log.Error(e, "I/O error while opening serial port {PortName}", portName);
-        }
-        catch (Exception e)
-        {
-            Log.Error(e, "Error opening serial port {PortName}", portName);
+                }
+                catch (ObjectDisposedException) { }
+                catch (IOException) { }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Unexpected error in listening task for port {PortName}", portName);
+                }
+            }, token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
     }
 
