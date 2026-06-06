@@ -48,7 +48,7 @@ public partial class App : Application
         _appMutex = new Mutex(true, AppGuid, out bool isNewInstance);
         if (!isNewInstance)
         {
-            MessageBox.Show("SmartEdgeHMI 系统已在运行中，请勿重复启动！", "系统提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("SmartEdgeHMI 系统已在运行中, 请勿重复启动！", "系统提示", MessageBoxButton.OK, MessageBoxImage.Warning);
             Environment.Exit(0);
             return;
         }
@@ -82,13 +82,13 @@ public partial class App : Application
         if (e.Exception is OutOfMemoryException or AccessViolationException)
         {
             e.Handled = false;
-            MessageBox.Show($"发生严重的不可恢复错误，程序即将关闭。\n异常信息: {e.Exception.Message}", "致命错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show($"发生严重的不可恢复错误, 程序即将关闭。\n异常信息: {e.Exception.Message}", "致命错误", MessageBoxButton.OK, MessageBoxImage.Error);
             Log.CloseAndFlush();
             return;
         }
 
         e.Handled = true;
-        MessageBox.Show($"程序遇到意外错误，已记录到日志，请检查操作。\n摘要: {e.Exception.Message}", "意外错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+        MessageBox.Show($"程序遇到意外错误, 已记录到日志, 请检查操作。\n摘要: {e.Exception.Message}", "意外错误", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     private void CurrentDomain_UnhandledException(object? sender, UnhandledExceptionEventArgs e)
@@ -97,8 +97,8 @@ public partial class App : Application
 
         if (e.IsTerminating)
         {
-            Log.Fatal(ex, "【非UI后台线程】发生致命未处理异常，进程即将被 CLR 终止！");
-            MessageBox.Show($"系统后台线程发生致命错误，程序即将被迫关闭！\n请将此屏幕截图给技术人员。\n错误信息: {ex?.Message}", "系统崩溃 (Fatal)", MessageBoxButton.OK, MessageBoxImage.Error);
+            Log.Fatal(ex, "【非UI后台线程】发生致命未处理异常, 进程即将被 CLR 终止！");
+            MessageBox.Show($"系统后台线程发生致命错误, 程序即将被迫关闭！\n请将此屏幕截图给技术人员。\n错误信息: {ex?.Message}", "系统崩溃 (Fatal)", MessageBoxButton.OK, MessageBoxImage.Error);
             Log.CloseAndFlush();
         }
         else

@@ -1,4 +1,4 @@
-# 顶层配置文件，停止向上查找
+# 顶层配置文件, 停止向上查找
 root = true
 
 # ==========================================
@@ -29,9 +29,9 @@ indent_size = 4
 # 4. C# 基础代码风格 (Code Style)
 # ==========================================
 [*.cs]
-# 排序 using 引用，System 开头的放在最前面
+# 排序 using 引用, System 开头的放在最前面
 dotnet_sort_system_directives_first = true
-# 推荐使用文件范围的命名空间 (C# 10+特性，如 namespace QuantClient.Core;)
+# 推荐使用文件范围的命名空间 (C# 10+特性, 如 namespace QuantClient.Core;)
 csharp_style_namespace_declarations = file_scoped:warning
 
 # --- 'var' 关键字的使用偏好 ---
@@ -93,7 +93,7 @@ dotnet_naming_symbols.types.applicable_kinds = class, struct, interface, enum, m
 dotnet_naming_symbols.types.applicable_accessibilities = *
 dotnet_naming_style.pascal_case.capitalization = pascal_case
 
-# 内部和私有字段必须以 _ 开头，且为 camelCase (例如 _marketDataService)
+# 内部和私有字段必须以 _ 开头, 且为 camelCase (例如 _marketDataService)
 dotnet_naming_rule.private_or_internal_field_should_be_begins_with__.severity = warning
 dotnet_naming_rule.private_or_internal_field_should_be_begins_with__.symbols = private_or_internal_field
 dotnet_naming_rule.private_or_internal_field_should_be_begins_with__.style = begins_with__

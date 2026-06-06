@@ -1,8 +1,10 @@
-using SmartEdgeHMI.Models;
+using SmartEdgeHMI.Models.Entities;
 
 namespace SmartEdgeHMI.Services;
 
 public interface ISqliteRepository
 {
-    public List<AlarmHistory> GetAlarmHistory();
+    public List<AlarmRecordEntity> GetAlarmHistory();
+
+    public void SaveAlarmRecord(AlarmRecordEntity alarmRecord);
 }

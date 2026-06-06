@@ -18,7 +18,7 @@ public class LogUpdateMessage(SystemLogModel data)
     public SystemLogModel LogData { get; } = data;
 }
 
-// 自定义的 Serilog 接收器
+// 自定义 Serilog 接收器
 public class WpfSerilogSink : ILogEventSink
 {
     public void Emit(LogEvent logEvent)

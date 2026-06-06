@@ -12,6 +12,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<ISerialPortService, SerialPortService>();
         services.AddSingleton<ISqliteRepository, SqliteRepository>();
+        services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton(config);
         // services.AddTransient<SettingsViewModel>();

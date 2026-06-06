@@ -1,7 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Serilog;
-using SmartEdgeHMI.Models;
+using SmartEdgeHMI.Models.Entities;
 
 namespace SmartEdgeHMI.Services;
 
@@ -10,9 +10,9 @@ public class SqliteRepository(IConfiguration config) : ISqliteRepository
     private readonly string _connectionString = config["DatabaseSettings:DefaultConnection"] ?? "Data Source=SmartEdgeHMI.db";
     private readonly string _queryLimit = config["DatabaseSettings:QueryLimit"] ?? "10";
 
-    public List<AlarmHistory> GetAlarmHistory()
+    public List<AlarmRecordEntity> GetAlarmHistory()
     {
-        var list = new List<AlarmHistory>();
+        var list = new List<AlarmRecordEntity>();
 
         // using 确保连接用完即关闭
         using var connection = new SqliteConnection(_connectionString);
@@ -26,7 +26,7 @@ public class SqliteRepository(IConfiguration config) : ISqliteRepository
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
-                list.Add(new AlarmHistory
+                list.Add(new AlarmRecordEntity
                 {
                     DeviceId = reader.GetString(0),
                     Timestamp = reader.GetDateTime(1),
@@ -40,5 +40,24 @@ public class SqliteRepository(IConfiguration config) : ISqliteRepository
         }
 
         return list;
+    }
+
+    public void SaveAlarmRecord(AlarmRecordEntity alarmRecord)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"INSERT INTO AlarmHistory (DeviceId, Timestamp, AlarmCode) VALUES (@DeviceId, @Timestamp, @AlarmCode)";
+        command.Parameters.AddWithValue("@DeviceId", alarmRecord.DeviceId);
+        command.Parameters.AddWithValue("@Timestamp", alarmRecord.Timestamp);
+        command.Parameters.AddWithValue("@AlarmCode", alarmRecord.AlarmCode);
+        try
+        {
+            command.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "保存报警记录失败");
+        }
     }
 }

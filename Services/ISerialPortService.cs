@@ -1,4 +1,4 @@
-using SmartEdgeHMI.Models;
+using SmartEdgeHMI.Models.DTOs;
 
 namespace SmartEdgeHMI.Services;
 
@@ -10,5 +10,5 @@ public interface ISerialPortService
 
     public void ClosePort(string portName);
 
-    public void SendCommandAsync(string portName, DeviceCommand deviceCommand);
+    public Task SendCommandAsync(string portName, CommandPayload commandPayload);
 }
