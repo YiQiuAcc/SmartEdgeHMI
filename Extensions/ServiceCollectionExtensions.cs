@@ -14,7 +14,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISqliteRepository, SqliteRepository>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<MainViewModel>();
-        services.AddSingleton(config);
         // services.AddTransient<SettingsViewModel>();
         services.AddSingleton<MainWindow>();
         return services;

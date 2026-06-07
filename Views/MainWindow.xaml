@@ -118,7 +118,7 @@
                         FontSize="14"
                         HeadersVisibility="Column"
                         IsReadOnly="True"
-                        ItemsSource="{Binding AlarmRecords}"
+                        ItemsSource="{Binding AlarmHistory}"
                         RowHeight="30">
                         <DataGrid.Columns>
                             <DataGridTextColumn

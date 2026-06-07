@@ -8,18 +8,18 @@ namespace SmartEdgeHMI.Services;
 public class SqliteRepository(IConfiguration config) : ISqliteRepository
 {
     private readonly string _connectionString = config["DatabaseSettings:DefaultConnection"] ?? "Data Source=SmartEdgeHMI.db";
-    private readonly string _queryLimit = config["DatabaseSettings:QueryLimit"] ?? "10";
+    private readonly int _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
 
     public List<AlarmRecordEntity> GetAlarmHistory()
     {
         var list = new List<AlarmRecordEntity>();
 
-        // using 确保连接用完即关闭
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
 
         var command = connection.CreateCommand();
-        command.CommandText = $"SELECT DeviceId, Timestamp, AlarmCode FROM AlarmHistory ORDER BY Timestamp DESC LIMIT {_queryLimit}";
+        command.CommandText = "SELECT DeviceId, Timestamp, AlarmCode FROM AlarmHistory ORDER BY Timestamp DESC LIMIT @Limit";
+        command.Parameters.AddWithValue("@Limit", _queryLimit);
 
         try
         {

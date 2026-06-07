@@ -47,7 +47,7 @@ public partial class MainViewModel : ObservableObject,
     [ObservableProperty]
     private double _alarmThreshold = 50.0;
 
-    public ObservableCollection<string> SystemLogs { get; set; } = [];
+    public ObservableCollection<SystemLogModel> SystemLogs { get; set; } = [];
     public ObservableCollection<AlarmRecordEntity> AlarmHistory { get; set; } = [];
 
     private CancellationTokenSource? _saveThresholdCts;
@@ -62,8 +62,8 @@ public partial class MainViewModel : ObservableObject,
         _settingsService = settingsService;
 
         // 加载可用串口列表
-        var ports = _serialPortService.GetAvailablePortNames();
-        foreach (var port in ports) AvailablePorts.Add(port);
+        string[]? ports = _serialPortService.GetAvailablePortNames();
+        foreach (string port in ports) AvailablePorts.Add(port);
 
         // 注册强类型 MVVM 消息接收器
         WeakReferenceMessenger.Default.RegisterAll(this);
@@ -125,7 +125,7 @@ public partial class MainViewModel : ObservableObject,
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
-            SystemLogs.Insert(0, message.LogData.Message);
+            SystemLogs.Insert(0, message.LogData);
             if (SystemLogs.Count > AppConstants.MaxLogEntries)
                 SystemLogs.RemoveAt(SystemLogs.Count - 1);
         });
@@ -161,6 +161,15 @@ public partial class MainViewModel : ObservableObject,
     }
 
     [RelayCommand]
+    private void ToggleConnect()
+    {
+        if (IsConnected)
+            ClosePort();
+        else
+            OpenPort();
+    }
+
+    [RelayCommand]
     private async Task ResetDeviceAsync()
     {
         if (string.IsNullOrEmpty(SelectedPort)) return;
@@ -184,6 +193,7 @@ public partial class MainViewModel : ObservableObject,
     private async void DebounceSaveThreshold(double value)
     {
         _saveThresholdCts?.Cancel();
+        _saveThresholdCts?.Dispose();
         _saveThresholdCts = new CancellationTokenSource();
         var token = _saveThresholdCts.Token;
 

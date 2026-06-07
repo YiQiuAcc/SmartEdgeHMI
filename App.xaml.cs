@@ -122,7 +122,7 @@ public partial class App : Application
         finally
         {
             Log.CloseAndFlush();
-            _appMutex?.ReleaseMutex();
+            try { _appMutex?.ReleaseMutex(); } catch (ApplicationException) { }
             _appMutex?.Dispose();
             base.OnExit(e);
         }

@@ -10,7 +10,7 @@ using SmartEdgeHMI.Models.Messages;
 
 namespace SmartEdgeHMI.Services;
 
-public class SerialPortService : ISerialPortService
+public class SerialPortService : ISerialPortService, IDisposable
 {
     // 将 CTS、端口实例和处理数据的 Channel 绑定在一起
     private readonly ConcurrentDictionary<string, PortContext> _activePorts = new();
@@ -21,21 +21,17 @@ public class SerialPortService : ISerialPortService
 
     public void OpenPort(string portName, int baudRate = 115200)
     {
-        if (_activePorts.ContainsKey(portName)) return;
-
         var serialPort = new SerialPort(portName, baudRate)
         {
             ReadTimeout = 500,
-            WriteTimeout = 500,
-            // 如果单片机是用 println() 发送, 默认就是 "\r\n" 或者 "\n"
+            WriteTimeout = 500
         };
 
         var cts = new CancellationTokenSource();
 
-        // 创建一个有界通道, 防止内存爆满
         var channelOptions = new BoundedChannelOptions(1000)
         {
-            FullMode = BoundedChannelFullMode.DropOldest, // 缓冲区满时丢弃旧数据, 保证数据实时性
+            FullMode = BoundedChannelFullMode.DropOldest,
             SingleWriter = true,
             SingleReader = true
         };
@@ -44,14 +40,17 @@ public class SerialPortService : ISerialPortService
         serialPort.Open();
         var context = new PortContext(serialPort, cts, channel);
 
-        if (_activePorts.TryAdd(portName, context))
+        if (!_activePorts.TryAdd(portName, context))
         {
-            // 启动生产者线程 (读取串口底层缓冲)
-            Task.Factory.StartNew(() => ReadPortLoop(portName, context),
-                cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            // 启动消费者线程 (处理业务逻辑和消息分发)
-            Task.Run(() => ConsumeDataLoop(portName, context));
+            serialPort.Close();
+            serialPort.Dispose();
+            cts.Dispose();
+            return;
         }
+
+        Task.Factory.StartNew(() => ReadPortLoop(portName, context),
+            cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        Task.Run(() => ConsumeDataLoop(portName, context));
     }
 
     private void ReadPortLoop(string portName, PortContext context)
@@ -162,6 +161,14 @@ public class SerialPortService : ISerialPortService
             {
                 Log.Error(ex, "向 {PortName} 发送指令失败", portName);
             }
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var portName in _activePorts.Keys.ToList())
+        {
+            ClosePort(portName);
         }
     }
 }
