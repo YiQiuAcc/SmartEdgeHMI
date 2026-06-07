@@ -154,6 +154,7 @@ function sendTelemetry() {
     count: state.outputCount,
     status: state.status,
     err_code: state.errorCode,
+    quality: 0, // DataQuality.Good
   };
 
   const line = JSON.stringify(payload) + "\n";

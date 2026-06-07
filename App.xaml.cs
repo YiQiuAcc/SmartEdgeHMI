@@ -68,6 +68,7 @@ public partial class App : Application
         // 注册并构建服务容器
         ServiceProvider = new ServiceCollection()
             .AddSingleton(Configuration)
+            .AddAppServices()
             .BuildServiceProvider();
         var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();

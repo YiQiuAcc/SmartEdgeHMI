@@ -121,7 +121,8 @@ public partial class MainViewModel : ObservableObject,
                 DeviceId = payload.DeviceId,
                 Timestamp = DateTime.Now,
                 AlarmCode = payload.ErrorCode.ToString(),
-                TriggerValue = payload.Temperature
+                TriggerValue = payload.Temperature,
+                QualityCode = payload.QualityCode
             };
 
             DispatchToUI(() =>
@@ -162,6 +163,7 @@ public partial class MainViewModel : ObservableObject,
                 case ConnectionState.Error:
                     IsConnected = false;
                     StatusText = $"链路故障: {message.ErrorDetails}";
+                    Log.Error("串口 {Port} 链路故障: {Error}", message.PortName, message.ErrorDetails);
                     break;
             }
         });
@@ -198,9 +200,10 @@ public partial class MainViewModel : ObservableObject,
         {
             try
             {
+                Log.Information("正在连接串口 {Port}，波特率 {BaudRate}", SelectedPort, baud);
                 _serialPortService.OpenPort(SelectedPort, baud);
-                // 发送状态变更通知, 假定开启即成功, 或等待硬件握手后通过 Service 发出 Connected 消息
                 WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(SelectedPort, ConnectionState.Connected));
+                Log.Information("串口 {Port} 连接成功", SelectedPort);
             }
             catch (Exception ex)
             {
@@ -214,8 +217,10 @@ public partial class MainViewModel : ObservableObject,
     private void ClosePort()
     {
         if (string.IsNullOrEmpty(SelectedPort)) return;
+        Log.Information("正在断开串口 {Port}", SelectedPort);
         _serialPortService.ClosePort(SelectedPort);
         WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(SelectedPort, ConnectionState.Disconnected));
+        Log.Information("串口 {Port} 已断开", SelectedPort);
     }
 
     [RelayCommand]
