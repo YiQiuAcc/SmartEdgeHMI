@@ -68,17 +68,21 @@ public class SerialPortService : ISerialPortService, IDisposable
                         context.DataChannel.Writer.TryWrite(line);
                     }
                 }
-                catch (TimeoutException) { /* 正常超时, 继续循环等待新数据 */ }
+                catch (TimeoutException) { }
             }
         }
-        catch (IOException ex)
+        catch (OperationCanceledException) { /* 正常取消，静默退出 */ }
+        catch (Exception ex) when (!context.Cts.Token.IsCancellationRequested)
         {
-            Log.Error(ex, "物理断线或 I/O 错误: {PortName}", portName);
-            HandleUnexpectedDisconnect(portName);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "读取任务发生未知异常 {PortName}", portName);
+            string errorReason = ex switch
+            {
+                ObjectDisposedException => "串口资源已被释放",
+                InvalidOperationException => "串口连接已断开或端口状态异常",
+                IOException => "物理断线或 I/O 错误",
+                _ => "读取任务发生未知异常"
+            };
+
+            Log.Error(ex, "{Reason}: {PortName}", errorReason, portName);
             HandleUnexpectedDisconnect(portName);
         }
         finally

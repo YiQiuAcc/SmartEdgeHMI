@@ -10,8 +10,32 @@ public class SqliteRepository(IConfiguration config) : ISqliteRepository
     private readonly string _connectionString = config["DatabaseSettings:DefaultConnection"] ?? "Data Source=SmartEdgeHMI.db";
     private readonly int _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
 
+    private bool _initialized;
+
+    private void EnsureTable()
+    {
+        if (_initialized) return;
+        _initialized = true;
+
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS AlarmHistory (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                DeviceId TEXT NOT NULL,
+                Timestamp TEXT NOT NULL,
+                AlarmCode TEXT NOT NULL,
+                TriggerValue REAL NOT NULL DEFAULT 0
+            )
+            """;
+        command.ExecuteNonQuery();
+    }
+
     public List<AlarmRecordEntity> GetAlarmHistory()
     {
+        EnsureTable();
+
         var list = new List<AlarmRecordEntity>();
 
         using var connection = new SqliteConnection(_connectionString);
@@ -44,6 +68,8 @@ public class SqliteRepository(IConfiguration config) : ISqliteRepository
 
     public void SaveAlarmRecord(AlarmRecordEntity alarmRecord)
     {
+        EnsureTable();
+
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
         using var command = connection.CreateCommand();

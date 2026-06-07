@@ -13,7 +13,7 @@ public static class AppConstants
     public const int SerialPortTimeoutMs = 500;
 
     /// <summary>配置文件防抖保存的延迟时间 (毫秒)</summary>
-    public const int SettingsSaveDebounceMs = 5000;
+    public const int SettingsSaveDebounceMs = 3000;
 
     /// <summary>UI 内存中保留的最大日志条数，防止内存溢出 (OOM)</summary>
     public const int MaxLogEntries = 500;

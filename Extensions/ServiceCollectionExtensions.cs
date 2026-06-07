@@ -8,7 +8,7 @@ namespace SmartEdgeHMI.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddAppServices(this IServiceCollection services, IConfiguration config)
+    public static IServiceCollection AddAppServices(this IServiceCollection services)
     {
         services.AddSingleton<ISerialPortService, SerialPortService>();
         services.AddSingleton<ISqliteRepository, SqliteRepository>();
