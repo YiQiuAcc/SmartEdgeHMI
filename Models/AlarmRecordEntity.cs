@@ -15,6 +15,4 @@ public class AlarmRecordEntity
 
     /// <summary>OPC-UA 数据质量码：Good=可信, Uncertain=存疑, Bad=无效</summary>
     public DataQuality QualityCode { get; set; } = DataQuality.Good;
-
-    public string FormattedTime => Timestamp.ToString("yyyy-MM-dd HH:mm:ss");
 }

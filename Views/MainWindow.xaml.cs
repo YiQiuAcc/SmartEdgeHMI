@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using ScottPlot;
@@ -10,9 +11,10 @@ namespace SmartEdgeHMI.Views;
 public partial class MainWindow : Window, IRecipient<TelemetryReceivedMessage>
 {
     private readonly Dictionary<string, ScottPlot.Plottables.DataStreamer> _streamers = [];
-
-    // 工业级看版的暗色调高端调色盘
     private static readonly Color[] _streamerColors = [Colors.Cyan, Colors.Gold];
+
+    // 增加一个渲染定时器
+    private readonly DispatcherTimer _renderTimer;
 
     public MainWindow(IServiceProvider serviceProvider)
     {
@@ -20,8 +22,15 @@ public partial class MainWindow : Window, IRecipient<TelemetryReceivedMessage>
         InitializePlot();
 
         DataContext = serviceProvider.GetService<MainViewModel>();
-        // 自动注册当前 View 实例实现的所有 IRecipient 接口
         WeakReferenceMessenger.Default.RegisterAll(this);
+
+        // 初始化并启动 30 FPS 渲染定时器
+        _renderTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(33)
+        };
+        _renderTimer.Tick += (s, e) => DataPlot.Refresh();
+        _renderTimer.Start();
     }
 
     private void InitializePlot()
@@ -29,10 +38,10 @@ public partial class MainWindow : Window, IRecipient<TelemetryReceivedMessage>
         DataPlot.Plot.FigureBackground.Color = Color.FromHex("#1E1E1E");
         DataPlot.Plot.DataBackground.Color = Color.FromHex("#252526");
         DataPlot.Plot.Axes.Color(Colors.LightGray);
-        // 设置坐标轴刻度数字（TickLabels）的高清字体大小
+        // 设置坐标轴刻度数字(TickLabels)的高清字体大小
         DataPlot.Plot.Axes.Bottom.TickLabelStyle.FontSize = 14;
         DataPlot.Plot.Axes.Left.TickLabelStyle.FontSize = 14;
-        // 设置坐标轴标题（Label）的高清字体大小（如果你有设置 X/Y 轴名称的话）
+        // 设置坐标轴标题(Label)的高清字体大小
         DataPlot.Plot.Axes.Bottom.Label.FontSize = 16;
         DataPlot.Plot.Axes.Left.Label.FontSize = 16;
         // 设置图表顶部主标题的高清字体大小
@@ -42,15 +51,13 @@ public partial class MainWindow : Window, IRecipient<TelemetryReceivedMessage>
         DataPlot.Refresh();
     }
 
-    /// <summary>直接订阅流通信总线分发的强类型遥测，用于百万级点数实时推流渲染</summary>
+    /// <summary>订阅流通信总线分发的强类型遥测</summary>
     public void Receive(TelemetryReceivedMessage message)
     {
-        // ScottPlot 必须在 UI 线程执行更新操作
-        Application.Current.Dispatcher.Invoke(() =>
+        Application.Current.Dispatcher.BeginInvoke(() =>
         {
             if (!_streamers.TryGetValue(message.PortName, out var streamer))
             {
-                // 初始化定长 1000 个采样点的环形流渲染器 (DataStreamer)
                 streamer = DataPlot.Plot.Add.DataStreamer(1000);
                 streamer.LineWidth = 2;
                 streamer.Color = _streamerColors[_streamers.Count % _streamerColors.Length];
@@ -59,11 +66,7 @@ public partial class MainWindow : Window, IRecipient<TelemetryReceivedMessage>
                 DataPlot.Plot.Axes.AutoScale();
             }
 
-            // 极为干净地推入强类型数据点
             streamer.Add(message.Temperature);
-
-            // 高频流下建议减少全量 Refresh 频率（例如通过计数器控制渲染帧率），或保持默认以获得极致实时感
-            DataPlot.Refresh();
         });
     }
 }

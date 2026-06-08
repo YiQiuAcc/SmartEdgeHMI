@@ -15,6 +15,9 @@ public static class AppConstants
     /// <summary>配置文件防抖保存的延迟时间 (毫秒)</summary>
     public const int SettingsSaveDebounceMs = 3000;
 
+    /// <summary>报警恢复需连续正常的帧数，防止阈值边界震荡导致报警风暴</summary>
+    public const int AlarmRecoveryDebounceCount = 3;
+
     /// <summary>UI 内存中保留的最大日志条数，防止内存溢出 (OOM)</summary>
     public const int MaxLogEntries = 500;
 

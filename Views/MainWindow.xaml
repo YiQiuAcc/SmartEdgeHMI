@@ -56,7 +56,7 @@
                     Width="90"
                     Padding="5"
                     Command="{Binding ToggleConnectCommand}"
-                    Content="连接 / 断开" />
+                    Content="{Binding ToggleButtonText, FallbackValue=连接 / 断开}" />
             </StackPanel>
         </StackPanel>
 

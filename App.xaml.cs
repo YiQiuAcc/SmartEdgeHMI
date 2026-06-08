@@ -70,6 +70,12 @@ public partial class App : Application
             .AddSingleton(Configuration)
             .AddAppServices()
             .BuildServiceProvider();
+
+        // 初始化数据库
+        ServiceProvider.GetRequiredService<ISqliteRepository>()
+            .InitializeDatabaseAsync()
+            .GetAwaiter().GetResult();
+
         var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
         Log.Information("SmartEdgeHMI 应用程序已成功启动。");

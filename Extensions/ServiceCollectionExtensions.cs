@@ -13,7 +13,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISqliteRepository, SqliteRepository>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<MainViewModel>();
-        // services.AddTransient<SettingsViewModel>();
         services.AddSingleton<MainWindow>();
         return services;
     }

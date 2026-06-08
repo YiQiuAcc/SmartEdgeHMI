@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
+using SmartEdgeHMI.Constants;
 using SmartEdgeHMI.Models.DTOs;
 using SmartEdgeHMI.Models.Messages;
 
@@ -23,8 +24,8 @@ public class SerialPortService : ISerialPortService, IDisposable
     {
         var serialPort = new SerialPort(portName, baudRate)
         {
-            ReadTimeout = 500,
-            WriteTimeout = 500
+            ReadTimeout = AppConstants.SerialPortTimeoutMs,
+            WriteTimeout = AppConstants.SerialPortTimeoutMs
         };
 
         var cts = new CancellationTokenSource();
@@ -61,7 +62,7 @@ public class SerialPortService : ISerialPortService, IDisposable
             {
                 try
                 {
-                    var line = context.Port.ReadLine();
+                    string? line = context.Port.ReadLine();
                     if (!string.IsNullOrWhiteSpace(line))
                     {
                         // 写入 Channel, 非阻塞。写满了会自动覆盖旧数据
@@ -91,7 +92,7 @@ public class SerialPortService : ISerialPortService, IDisposable
         }
     }
 
-    private async Task ConsumeDataLoop(string portName, PortContext context)
+    private static async Task ConsumeDataLoop(string portName, PortContext context)
     {
         try
         {
@@ -151,9 +152,9 @@ public class SerialPortService : ISerialPortService, IDisposable
         {
             try
             {
-                var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(commandPayload);
+                byte[]? jsonBytes = JsonSerializer.SerializeToUtf8Bytes(commandPayload);
                 // 追加特定的协议结束符 "\n" 帮助单片机截断
-                var packet = new byte[jsonBytes.Length + 1];
+                byte[]? packet = new byte[jsonBytes.Length + 1];
                 jsonBytes.CopyTo(packet, 0);
                 packet[^1] = (byte)'\n';
                 // 使用 BaseStream 进行非阻塞异步写入
@@ -170,9 +171,10 @@ public class SerialPortService : ISerialPortService, IDisposable
 
     public void Dispose()
     {
-        foreach (var portName in _activePorts.Keys.ToList())
+        foreach (string portName in _activePorts.Keys.ToList())
         {
             ClosePort(portName);
         }
+        GC.SuppressFinalize(this);
     }
 }

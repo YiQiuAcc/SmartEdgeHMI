@@ -4,7 +4,9 @@ namespace SmartEdgeHMI.Services;
 
 public interface ISqliteRepository
 {
-    public List<AlarmRecordEntity> GetAlarmHistory();
+    Task InitializeDatabaseAsync();
 
-    public void SaveAlarmRecord(AlarmRecordEntity alarmRecord);
+    Task<List<AlarmRecordEntity>> GetAlarmHistoryAsync();
+
+    Task SaveAlarmRecordAsync(AlarmRecordEntity alarmRecord);
 }

@@ -84,7 +84,7 @@ public class SettingsService : ISettingsService
                 string? segment = path[i];
                 if (node[segment] is not JsonObject child)
                 {
-                    child = new JsonObject();
+                    child = [];
                     node[segment] = child;
                 }
                 node = child;

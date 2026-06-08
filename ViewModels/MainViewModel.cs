@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -22,23 +23,28 @@ public partial class MainViewModel : ObservableObject,
     private readonly ISqliteRepository _sqliteRepo;
     private readonly ISettingsService _settingsService;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(StatusColor))]
-    private bool _isConnected;
+    // 多端口连接跟踪：替代原 bool _isConnected
+    private readonly HashSet<string> _connectedPorts = [];
+
+    public bool IsConnected => _connectedPorts.Count > 0;
+    public bool IsSelectedPortConnected => SelectedPort is not null && _connectedPorts.Contains(SelectedPort);
+    public string ToggleButtonText => IsSelectedPortConnected ? "断开" : "连接";
 
     [ObservableProperty]
     private string _statusText = "未连接";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusColor))]
+    [NotifyPropertyChangedFor(nameof(IsSelectedPortConnected))]
+    [NotifyPropertyChangedFor(nameof(ToggleButtonText))]
     private string? _selectedPort;
 
     [ObservableProperty]
     private string? _selectedBaudRate;
 
-    // 根据设备运行状态, 动态映射 UI 颜色 (可根据实际需求扩展)
     public string StatusColor => IsConnected ? "Green" : "Red";
 
-    public ObservableCollection<string> AvailablePorts { get; set; } = [];
+    public ObservableCollection<string> AvailablePorts { get; set; }
     public ObservableCollection<string> AvailableBaudRate { get; set; } = new(AppConstants.StandardBaudRates);
 
     [ObservableProperty]
@@ -53,6 +59,10 @@ public partial class MainViewModel : ObservableObject,
     private CancellationTokenSource? _saveThresholdCts;
     private bool _isInitializing;
 
+    // 报警风暴防护：边缘触发 + 恢复迟滞状态机
+    private readonly Dictionary<string, ErrorCode> _activeAlarms = [];
+    private readonly Dictionary<string, int> _recoveryCounters = [];
+
     public MainViewModel(
         ISerialPortService serialPortService,
         ISqliteRepository sqliteRepo,
@@ -62,17 +72,12 @@ public partial class MainViewModel : ObservableObject,
         _sqliteRepo = sqliteRepo;
         _settingsService = settingsService;
 
-        // 加载可用串口列表
-        string[]? ports = _serialPortService.GetAvailablePortNames();
-        foreach (string port in ports) AvailablePorts.Add(port);
+        string[] ports = _serialPortService.GetAvailablePortNames() ?? [];
+        AvailablePorts = new ObservableCollection<string>(ports);
 
-        // 注册强类型 MVVM 消息接收器
         WeakReferenceMessenger.Default.RegisterAll(this);
 
-        // 加载历史报警记录
-        LoadAlarmHistory();
-
-        // 加载并应用保存的阈值设置
+        _ = LoadAlarmHistorySafeAsync();
         LoadSavedThreshold();
     }
 
@@ -83,7 +88,6 @@ public partial class MainViewModel : ObservableObject,
             string savedThreshold = _settingsService.GetSetting("HardwareSettings:DefaultThreshold");
             if (!string.IsNullOrEmpty(savedThreshold) && double.TryParse(savedThreshold, out double threshold))
             {
-                // 设置初始化标志位，防止启动时的属性赋值触发持久化/下发等副作用
                 _isInitializing = true;
                 AlarmThreshold = threshold;
                 _isInitializing = false;
@@ -101,44 +105,77 @@ public partial class MainViewModel : ObservableObject,
         }
     }
 
-    /// <summary>消费高性能串口通道分发过来的强类型遥测数据</summary>
     public void Receive(TelemetryReceivedMessage message)
     {
         var payload = message.Value;
-
-        // 安全调度到 UI 线程更新数据绑定绑定属性
-        DispatchToUI(() =>
-        {
-            CurrentTemperature = payload.Temperature;
-            // 可以在此处继续绑定 payload.OutputCount 或数据质量状态等
-        });
-
-        // 读取下位机已判定的错误码，HMI 仅做"翻译官"角色，不自行判断
-        if (payload.ErrorCode != ErrorCode.NoError)
-        {
-            var alarmRecord = new AlarmRecordEntity
-            {
-                DeviceId = payload.DeviceId,
-                Timestamp = DateTime.Now,
-                AlarmCode = payload.ErrorCode.ToString(),
-                TriggerValue = payload.Temperature,
-                QualityCode = payload.QualityCode
-            };
-
-            DispatchToUI(() =>
-            {
-                AlarmHistory.Insert(0, alarmRecord);
-                if (AlarmHistory.Count > AppConstants.MaxLogEntries)
-                    AlarmHistory.RemoveAt(AlarmHistory.Count - 1);
-            });
-
-            // 异步存储至边缘 SQLite, 防止阻塞流数据消费
-            Task.Run(() => _sqliteRepo.SaveAlarmRecord(alarmRecord))
-                .ContinueWith(t => Log.Error(t.Exception, "报警数据本地落盘失败"), TaskContinuationOptions.OnlyOnFaulted);
-        }
+        DispatchToUI(() => CurrentTemperature = payload.Temperature);
+        EvaluateAlarmState(payload);
     }
 
-    /// <summary>接收链路断线感知通知, 平滑切换 UI 状态机</summary>
+    /// <summary>边缘触发报警状态机：仅在状态转换瞬间记录，防止报警风暴</summary>
+    private void EvaluateAlarmState(TelemetryPayload payload)
+    {
+        if (payload.QualityCode == DataQuality.Bad)
+            return;
+
+        bool hasError = payload.ErrorCode != ErrorCode.NoError;
+        bool isCurrentlyAlarmed = _activeAlarms.ContainsKey(payload.DeviceId);
+
+        if (hasError && !isCurrentlyAlarmed)
+        {
+            // ↑ 上升沿: Normal → Alarm
+            _activeAlarms[payload.DeviceId] = payload.ErrorCode;
+            _recoveryCounters.Remove(payload.DeviceId);
+            RecordAlarm(payload);
+        }
+        else if (!hasError && isCurrentlyAlarmed)
+        {
+            // ↓ 潜在下降沿: 进入恢复迟滞计数
+            if (!_recoveryCounters.TryGetValue(payload.DeviceId, out int count))
+                count = 0;
+            count++;
+            _recoveryCounters[payload.DeviceId] = count;
+
+            if (count >= AppConstants.AlarmRecoveryDebounceCount)
+            {
+                _activeAlarms.Remove(payload.DeviceId);
+                _recoveryCounters.Remove(payload.DeviceId);
+                Log.Information("报警恢复: {DeviceId}, 连续 {Count} 帧正常", payload.DeviceId, count);
+            }
+        }
+        else if (hasError && isCurrentlyAlarmed)
+        {
+            // → 报警持续: 重置恢复计数器，防止瞬时正常被误判为恢复
+            _recoveryCounters.Remove(payload.DeviceId);
+        }
+        // else: !hasError && !isCurrentlyAlarmed → 稳态正常，无需处理
+    }
+
+    private void RecordAlarm(TelemetryPayload payload)
+    {
+        var alarmRecord = new AlarmRecordEntity
+        {
+            DeviceId = payload.DeviceId,
+            Timestamp = DateTime.Now,
+            AlarmCode = payload.ErrorCode.ToString(),
+            TriggerValue = payload.Temperature,
+            QualityCode = payload.QualityCode
+        };
+
+        DispatchToUI(() =>
+        {
+            AlarmHistory.Insert(0, alarmRecord);
+            if (AlarmHistory.Count > AppConstants.MaxLogEntries)
+                AlarmHistory.RemoveAt(AlarmHistory.Count - 1);
+        });
+
+        _sqliteRepo.SaveAlarmRecordAsync(alarmRecord)
+            .ContinueWith(t => Log.Error(t.Exception, "报警数据本地落盘失败"), TaskContinuationOptions.OnlyOnFaulted);
+
+        Log.Warning("报警触发: {DeviceId}, 错误码: {ErrorCode}, 触发值: {Value}",
+            payload.DeviceId, payload.ErrorCode, payload.Temperature);
+    }
+
     public void Receive(DeviceStateChangedMessage message)
     {
         DispatchToUI(() =>
@@ -146,23 +183,15 @@ public partial class MainViewModel : ObservableObject,
             switch (message.State)
             {
                 case ConnectionState.Connected:
-                    IsConnected = true;
-                    StatusText = $"已连接 {message.PortName}";
-                    SelectedPort = message.PortName;
-                    // 设备连接成功后，自动下发当前阈值配置
-                    _ = Task.Run(async () =>
-                    {
-                        await SaveThresholdAsync(AlarmThreshold, CancellationToken.None);
-                        Log.Information("设备连接后自动下发阈值配置: {Threshold}°C", AlarmThreshold);
-                    });
+                    SetPortState(message.PortName, connected: true);
+                    _ = SaveThresholdSafeAsync(AlarmThreshold);
                     break;
                 case ConnectionState.Disconnected:
-                    IsConnected = false;
-                    StatusText = $"断开: {message.PortName}";
+                    SetPortState(message.PortName, connected: false);
                     break;
                 case ConnectionState.Error:
-                    IsConnected = false;
-                    StatusText = $"链路故障: {message.ErrorDetails}";
+                    SetPortState(message.PortName, connected: false);
+                    StatusText = $"链路故障 [{message.PortName}]: {message.ErrorDetails}";
                     Log.Error("串口 {Port} 链路故障: {Error}", message.PortName, message.ErrorDetails);
                     break;
             }
@@ -179,16 +208,33 @@ public partial class MainViewModel : ObservableObject,
         });
     }
 
-    /// <summary>安全调度到 UI 线程，应用退出时 Application.Current 为 null 则静默丢弃</summary>
+    private void SetPortState(string portName, bool connected)
+    {
+        if (connected)
+            _connectedPorts.Add(portName);
+        else
+            _connectedPorts.Remove(portName);
+
+        OnPropertyChanged(nameof(IsConnected));
+        OnPropertyChanged(nameof(StatusColor));
+        OnPropertyChanged(nameof(IsSelectedPortConnected));
+        OnPropertyChanged(nameof(ToggleButtonText));
+
+        StatusText = _connectedPorts.Count switch
+        {
+            0 => "未连接",
+            1 => $"已连接 {_connectedPorts.First()}",
+            _ => $"已连接 {_connectedPorts.Count} 个端口"
+        };
+    }
+
     private static void DispatchToUI(Action action)
     {
         var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null)
-            return;
-        if (dispatcher.CheckAccess())
-            action();
-        else
-            dispatcher.BeginInvoke(action);
+        if (dispatcher is null) return;
+
+        if (dispatcher.CheckAccess()) action();
+        else dispatcher.BeginInvoke(action);
     }
 
     [RelayCommand]
@@ -202,6 +248,7 @@ public partial class MainViewModel : ObservableObject,
             {
                 Log.Information("正在连接串口 {Port}，波特率 {BaudRate}", SelectedPort, baud);
                 _serialPortService.OpenPort(SelectedPort, baud);
+                SetPortState(SelectedPort, connected: true);
                 WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(SelectedPort, ConnectionState.Connected));
                 Log.Information("串口 {Port} 连接成功", SelectedPort);
             }
@@ -219,6 +266,7 @@ public partial class MainViewModel : ObservableObject,
         if (string.IsNullOrEmpty(SelectedPort)) return;
         Log.Information("正在断开串口 {Port}", SelectedPort);
         _serialPortService.ClosePort(SelectedPort);
+        SetPortState(SelectedPort, connected: false);
         WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(SelectedPort, ConnectionState.Disconnected));
         Log.Information("串口 {Port} 已断开", SelectedPort);
     }
@@ -226,7 +274,8 @@ public partial class MainViewModel : ObservableObject,
     [RelayCommand]
     private void ToggleConnect()
     {
-        if (IsConnected)
+        if (string.IsNullOrEmpty(SelectedPort)) return;
+        if (_connectedPorts.Contains(SelectedPort))
             ClosePort();
         else
             OpenPort();
@@ -237,7 +286,6 @@ public partial class MainViewModel : ObservableObject,
     {
         if (string.IsNullOrEmpty(SelectedPort)) return;
 
-        // 使用全新的 CommandPayload DTO, 并注入标准原生的 .NET 8 Unix 时间戳
         var command = new CommandPayload(
             CommandId: Guid.NewGuid(),
             DeviceId: AppConstants.DefaultDeviceName,
@@ -250,10 +298,7 @@ public partial class MainViewModel : ObservableObject,
 
     partial void OnAlarmThresholdChanged(double value)
     {
-        // 初始化阶段跳过所有副作用操作
-        if (_isInitializing)
-            return;
-
+        if (_isInitializing) return;
         DebounceSaveThreshold(value);
     }
 
@@ -267,8 +312,8 @@ public partial class MainViewModel : ObservableObject,
         try
         {
             await Task.Delay(AppConstants.SettingsSaveDebounceMs, token);
-            // 使用 CancellationToken.None 确保一旦延迟结束，保存操作不会被后续滑块移动取消
             await SaveThresholdAsync(value, CancellationToken.None);
+
             if (!string.IsNullOrEmpty(SelectedPort) && IsConnected)
                 Log.Information("报警阈值已持久化并下发: {Threshold}°C", value);
             else
@@ -281,33 +326,58 @@ public partial class MainViewModel : ObservableObject,
         }
     }
 
+    private async Task SaveThresholdSafeAsync(double value)
+    {
+        try
+        {
+            await SaveThresholdAsync(value, CancellationToken.None);
+            Log.Information("设备连接后自动下发阈值配置: {Threshold}°C", value);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "自动下发阈值配置失败");
+        }
+    }
+
     private async Task SaveThresholdAsync(double value, CancellationToken token)
     {
         await _settingsService.SetSettingsAsync("HardwareSettings:DefaultThreshold", value.ToString(), token);
 
-        // 下发阈值配置到硬件设备
-        if (!string.IsNullOrEmpty(SelectedPort) && IsConnected)
+        // 广播阈值到所有已连接端口
+        foreach (var portName in _connectedPorts.ToList())
         {
-            // 修改：直接传递数值而不是对象，以匹配虚拟设备模拟器的期望格式
             var command = new CommandPayload(
                 CommandId: Guid.NewGuid(),
                 DeviceId: AppConstants.DefaultDeviceName,
                 Action: DeviceAction.Configure,
                 TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                Parameters: value  // 直接传递阈值数值
+                Parameters: value
             );
-            await _serialPortService.SendCommandAsync(SelectedPort, command);
+            await _serialPortService.SendCommandAsync(portName, command);
+        }
+    }
+
+    private async Task LoadAlarmHistorySafeAsync()
+    {
+        try
+        {
+            await LoadAlarmHistoryAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "启动时加载历史报警记录失败");
         }
     }
 
     [RelayCommand]
-    private void LoadAlarmHistory()
+    private async Task LoadAlarmHistoryAsync()
     {
-        var data = _sqliteRepo.GetAlarmHistory();
-        AlarmHistory.Clear();
-        foreach (var item in data)
+        var data = await _sqliteRepo.GetAlarmHistoryAsync();
+        DispatchToUI(() =>
         {
-            AlarmHistory.Add(item);
-        }
+            AlarmHistory.Clear();
+            foreach (var item in data)
+                AlarmHistory.Add(item);
+        });
     }
 }
