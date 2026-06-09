@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -22,8 +22,9 @@ public partial class MainViewModel : ObservableObject,
     private readonly ISerialPortService _serialPortService;
     private readonly ISqliteRepository _sqliteRepo;
     private readonly ISettingsService _settingsService;
+    private readonly ModbusService _modbusService;
 
-    // 多端口连接跟踪：替代原 bool _isConnected
+    // 多端口连接跟踪
     private readonly HashSet<string> _connectedPorts = [];
 
     public bool IsConnected => _connectedPorts.Count > 0;
@@ -48,6 +49,12 @@ public partial class MainViewModel : ObservableObject,
     public ObservableCollection<string> AvailableBaudRate { get; set; } = new(AppConstants.StandardBaudRates);
 
     [ObservableProperty]
+    private CommunicationProtocol _selectedProtocol = CommunicationProtocol.JSON;
+
+    public ObservableCollection<CommunicationProtocol> AvailableProtocols { get; } =
+        [CommunicationProtocol.JSON, CommunicationProtocol.Modbus];
+
+    [ObservableProperty]
     private double _currentTemperature = 25.0;
 
     [ObservableProperty]
@@ -66,11 +73,13 @@ public partial class MainViewModel : ObservableObject,
     public MainViewModel(
         ISerialPortService serialPortService,
         ISqliteRepository sqliteRepo,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        ModbusService modbusService)
     {
         _serialPortService = serialPortService;
         _sqliteRepo = sqliteRepo;
         _settingsService = settingsService;
+        _modbusService = modbusService;
 
         string[] ports = _serialPortService.GetAvailablePortNames() ?? [];
         AvailablePorts = new ObservableCollection<string>(ports);
@@ -286,14 +295,29 @@ public partial class MainViewModel : ObservableObject,
     {
         if (string.IsNullOrEmpty(SelectedPort)) return;
 
-        var command = new CommandPayload(
-            CommandId: Guid.NewGuid(),
-            DeviceId: AppConstants.DefaultDeviceName,
-            Action: DeviceAction.Reset,
-            TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-        );
-
-        await _serialPortService.SendCommandAsync(SelectedPort, command);
+        switch (SelectedProtocol)
+        {
+            case CommunicationProtocol.JSON:
+            {
+                var command = new CommandPayload(
+                    CommandId: Guid.NewGuid(),
+                    DeviceId: AppConstants.DefaultDeviceName,
+                    Action: DeviceAction.Reset,
+                    TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                );
+                await _serialPortService.WriteStringAsync(SelectedPort, JsonSerializer.Serialize(command));
+                Log.Information("[{Protocol}] 设备复位指令已发送至 {Port}", SelectedProtocol, SelectedPort);
+                break;
+            }
+            case CommunicationProtocol.Modbus:
+            {
+                // 写保持寄存器 0x0001 = 1 触发复位
+                await _modbusService.WriteSingleRegisterAsync(SelectedPort,
+                    AppConstants.DefaultModbusSlaveAddress, 0x0001, 1);
+                Log.Information("[{Protocol}] Modbus 复位指令已发送至 {Port}", SelectedProtocol, SelectedPort);
+                break;
+            }
+        }
     }
 
     partial void OnAlarmThresholdChanged(double value)
@@ -344,16 +368,32 @@ public partial class MainViewModel : ObservableObject,
         await _settingsService.SetSettingsAsync("HardwareSettings:DefaultThreshold", value.ToString(), token);
 
         // 广播阈值到所有已连接端口
-        foreach (var portName in _connectedPorts.ToList())
+        foreach (string portName in _connectedPorts.ToList())
         {
-            var command = new CommandPayload(
-                CommandId: Guid.NewGuid(),
-                DeviceId: AppConstants.DefaultDeviceName,
-                Action: DeviceAction.Configure,
-                TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                Parameters: value
-            );
-            await _serialPortService.SendCommandAsync(portName, command);
+            switch (SelectedProtocol)
+            {
+                case CommunicationProtocol.JSON:
+                {
+                    var command = new CommandPayload(
+                        CommandId: Guid.NewGuid(),
+                        DeviceId: AppConstants.DefaultDeviceName,
+                        Action: DeviceAction.Configure,
+                        TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                        Parameters: value
+                    );
+                    await _serialPortService.WriteStringAsync(portName, JsonSerializer.Serialize(command));
+                    Log.Information("[JSON] 阈值配置已下发至 {Port}: {Value}°C", portName, value);
+                    break;
+                }
+                case CommunicationProtocol.Modbus:
+                {
+                    // 写保持寄存器 0x0002 = 阈值 (取整数部分)
+                    await _modbusService.WriteSingleRegisterAsync(portName,
+                        AppConstants.DefaultModbusSlaveAddress, 0x0002, (ushort)value);
+                    Log.Information("[Modbus] 阈值配置已下发至 {Port}: {Value}°C", portName, (ushort)value);
+                    break;
+                }
+            }
         }
     }
 

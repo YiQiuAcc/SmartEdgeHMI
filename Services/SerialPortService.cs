@@ -1,26 +1,24 @@
 using System.Collections.Concurrent;
-using System.IO;
 using System.IO.Ports;
-using System.Text.Json;
+using System.Text;
 using System.Threading.Channels;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Constants;
-using SmartEdgeHMI.Models.DTOs;
 using SmartEdgeHMI.Models.Messages;
 
 namespace SmartEdgeHMI.Services;
 
+/// <summary>物理层：只管原始字节的收发，不关心数据格式</summary>
 public class SerialPortService : ISerialPortService, IDisposable
 {
-    // 将 CTS、端口实例和处理数据的 Channel 绑定在一起
     private readonly ConcurrentDictionary<string, PortContext> _activePorts = new();
 
-    private record PortContext(SerialPort Port, CancellationTokenSource Cts, Channel<string> DataChannel);
+    private record PortContext(SerialPort Port, CancellationTokenSource Cts, Channel<byte[]> DataChannel);
 
     public string[] GetAvailablePortNames() => SerialPort.GetPortNames();
 
-    public void OpenPort(string portName, int baudRate = 115200)
+    public void OpenPort(string portName, int baudRate)
     {
         var serialPort = new SerialPort(portName, baudRate)
         {
@@ -36,7 +34,7 @@ public class SerialPortService : ISerialPortService, IDisposable
             SingleWriter = true,
             SingleReader = true
         };
-        var channel = Channel.CreateBounded<string>(channelOptions);
+        var channel = Channel.CreateBounded<byte[]>(channelOptions);
 
         serialPort.Open();
         var context = new PortContext(serialPort, cts, channel);
@@ -49,81 +47,78 @@ public class SerialPortService : ISerialPortService, IDisposable
             return;
         }
 
-        Task.Factory.StartNew(() => ReadPortLoop(portName, context),
-            cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        Task.Run(() => ConsumeDataLoop(portName, context));
+        // 物理层读线程：用 ReadLine() 可靠读取，转字节写入 Channel
+        _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // await 会确保真正等待这个异步循环彻底结束
+                    await ReadPortLoopAsync(portName, context);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "ReadPortLoop({Port}) 发生致命异常并退出", portName);
+                }
+            }, cts.Token);
+        // 转发线程：将字节块通过 Messenger 发给协议层
+        Task.Run(() => ForwardDataLoop(portName, context))
+            .ContinueWith(t => Log.Error(t.Exception, "ForwardDataLoop({Port}) 异常退出", portName),
+                TaskContinuationOptions.OnlyOnFaulted);
     }
 
-    private void ReadPortLoop(string portName, PortContext context)
+    private async Task ReadPortLoopAsync(string portName, PortContext context)
     {
+        // 从内存池借用一个 4KB 用来接字节流
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(4096);
         try
         {
             while (!context.Cts.Token.IsCancellationRequested)
             {
                 try
                 {
-                    string? line = context.Port.ReadLine();
-                    if (!string.IsNullOrWhiteSpace(line))
+                    int bytesRead = await context.Port.BaseStream.ReadAsync(buffer, context.Cts.Token);
+                    if (bytesRead > 0)
                     {
-                        // 写入 Channel, 非阻塞。写满了会自动覆盖旧数据
-                        context.DataChannel.Writer.TryWrite(line);
+                        // 把读到的数据拷贝出来
+                        byte[] chunk = new byte[bytesRead];
+                        Array.Copy(buffer, chunk, bytesRead);
+                        // 扔进 Channel, 向上层广播
+                        context.DataChannel.Writer.TryWrite(chunk);
                     }
                 }
                 catch (TimeoutException) { }
             }
         }
-        catch (OperationCanceledException) { /* 正常取消，静默退出 */ }
+        catch (OperationCanceledException) { }
         catch (Exception ex) when (!context.Cts.Token.IsCancellationRequested)
         {
-            string errorReason = ex switch
-            {
-                ObjectDisposedException => "串口资源已被释放",
-                InvalidOperationException => "串口连接已断开或端口状态异常",
-                IOException => "物理断线或 I/O 错误",
-                _ => "读取任务发生未知异常"
-            };
-
-            Log.Error(ex, "{Reason}: {PortName}", errorReason, portName);
+            Log.Error(ex, "读取任务发生异常: {PortName}", portName);
             HandleUnexpectedDisconnect(portName);
         }
         finally
         {
-            context.DataChannel.Writer.Complete(); // 通知消费者不再有新数据
+            // 用完桶还给池子
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            context.DataChannel.Writer.Complete();
         }
     }
 
-    private static async Task ConsumeDataLoop(string portName, PortContext context)
+    private static async Task ForwardDataLoop(string portName, PortContext context)
     {
         try
         {
-            // 异步读取 Channel 中的数据, 彻底解放读取线程
-            await foreach (var line in context.DataChannel.Reader.ReadAllAsync(context.Cts.Token))
+            await foreach (byte[] chunk in context.DataChannel.Reader.ReadAllAsync(context.Cts.Token))
             {
-                try
-                {
-                    // JSON 反序列化为 DTO
-                    var payload = JsonSerializer.Deserialize<TelemetryPayload>(line);
-
-                    if (payload != null)
-                    {
-                        // 成功解析后, 发送强类型的 Message
-                        WeakReferenceMessenger.Default.Send(new TelemetryReceivedMessage(portName, payload));
-                    }
-                }
-                catch (JsonException ex)
-                {
-                    // 偶尔出现的乱码（粘包、串口波特率抖动）不应该让程序崩溃, 记录日志即可
-                    Log.Warning(ex, "串口 {PortName} 收到无效的 JSON 数据: {RawData}", portName, line);
-                }
+                WeakReferenceMessenger.Default.Send(new RawDataReceivedMessage(portName, chunk));
             }
         }
-        catch (OperationCanceledException) { /* 正常取消, 退出循环 */ }
+        catch (OperationCanceledException) { }
     }
 
     private void HandleUnexpectedDisconnect(string portName)
     {
         ClosePort(portName);
-        // 发送规范的设备状态变更消息, 通知 ViewModel 做出界面反馈
         WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(portName, ConnectionState.Disconnected, "Unexpected hardware disconnection"));
     }
 
@@ -145,28 +140,26 @@ public class SerialPortService : ISerialPortService, IDisposable
         }
     }
 
-    // 使用 BaseStream 异步写入
-    public async Task SendCommandAsync(string portName, CommandPayload commandPayload)
+    public async Task WriteBytesAsync(string portName, byte[] data, int length)
     {
         if (_activePorts.TryGetValue(portName, out var context) && context.Port.IsOpen)
         {
             try
             {
-                byte[]? jsonBytes = JsonSerializer.SerializeToUtf8Bytes(commandPayload);
-                // 追加特定的协议结束符 "\n" 帮助单片机截断
-                byte[]? packet = new byte[jsonBytes.Length + 1];
-                jsonBytes.CopyTo(packet, 0);
-                packet[^1] = (byte)'\n';
-                // 使用 BaseStream 进行非阻塞异步写入
-                await context.Port.BaseStream.WriteAsync(packet, 0, packet.Length, context.Cts.Token);
+                await context.Port.BaseStream.WriteAsync(data, 0, length, context.Cts.Token);
                 await context.Port.BaseStream.FlushAsync(context.Cts.Token);
-                Log.Information("指令已发送至 {PortName}", portName);
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "向 {PortName} 发送指令失败", portName);
+                Log.Error(ex, "向 {PortName} 写入字节流失败", portName);
             }
         }
+    }
+
+    public async Task WriteStringAsync(string portName, string text)
+    {
+        byte[] data = Encoding.UTF8.GetBytes(text + "\n");
+        await WriteBytesAsync(portName, data, data.Length);
     }
 
     public void Dispose()

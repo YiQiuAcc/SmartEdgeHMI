@@ -49,3 +49,22 @@ public enum DeviceAction : byte
     Configure = 4,    // 下发配置参数 (如更改报警阈值)
     TriggerSample = 5 // 手动触发单次采样
 }
+
+/// <summary>上位机与下位机之间的通信协议类型</summary>
+public enum CommunicationProtocol : byte
+{
+    JSON = 0,
+    Modbus = 1
+}
+
+public enum ModbusFunctionCode
+{
+    ReadCoils = 1,
+    ReadDiscreteInputs = 2,
+    ReadHoldingRegisters = 3,
+    ReadInputRegisters = 4,
+    WriteSingleCoil = 5,
+    WriteSingleRegister = 6,
+    WriteMultipleCoils = 15,
+    WriteMultipleRegisters = 16
+}

@@ -2,13 +2,13 @@ namespace SmartEdgeHMI.Constants;
 
 public static class AppConstants
 {
-    // --- 串口通信标准配置 ---
+    // 串口通信配置
     public static readonly string[] StandardBaudRates =
     {
         "4800", "9600", "19200", "38400", "57600", "115200"
     };
 
-    // --- 系统时间与阈值参数 ---
+    // 系统时间与阈值参数
     /// <summary>串口读写默认超时时间 (毫秒)</summary>
     public const int SerialPortTimeoutMs = 500;
 
@@ -21,6 +21,7 @@ public static class AppConstants
     /// <summary>UI 内存中保留的最大日志条数，防止内存溢出 (OOM)</summary>
     public const int MaxLogEntries = 500;
 
-    // --- 默认硬件配置 ---
+    // 默认硬件配置
     public const string DefaultDeviceName = "Sensor_01";
+    public const byte DefaultModbusSlaveAddress = 1;
 }

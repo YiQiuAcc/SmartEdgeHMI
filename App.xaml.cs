@@ -76,6 +76,9 @@ public partial class App : Application
             .InitializeDatabaseAsync()
             .GetAwaiter().GetResult();
 
+        // 强制实例化协议层服务以注册消息处理器
+        ServiceProvider.GetRequiredService<JsonProtocolService>();
+
         var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
         Log.Information("SmartEdgeHMI 应用程序已成功启动。");

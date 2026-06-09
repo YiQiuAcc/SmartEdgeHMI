@@ -28,7 +28,7 @@
                     Margin="0,0,10,0"
                     Fill="{Binding StatusColor, FallbackValue=Red}" />
                 <TextBlock
-                    Width="120"
+                    Width="100"
                     Margin="0,0,15,0"
                     VerticalAlignment="Center"
                     Text="{Binding StatusText, FallbackValue=未连接}" />
@@ -52,6 +52,16 @@
                     VerticalAlignment="Center"
                     ItemsSource="{Binding AvailableBaudRate}"
                     SelectedItem="{Binding SelectedBaudRate, Mode=TwoWay}" />
+                <TextBlock
+                    Margin="0,0,5,0"
+                    VerticalAlignment="Center"
+                    Text="协议:" />
+                <ComboBox
+                    Width="80"
+                    Margin="0,0,10,0"
+                    VerticalAlignment="Center"
+                    ItemsSource="{Binding AvailableProtocols}"
+                    SelectedItem="{Binding SelectedProtocol, Mode=TwoWay}" />
                 <Button
                     Width="90"
                     Padding="5"
