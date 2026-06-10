@@ -26,12 +26,12 @@
                     Width="16"
                     Height="16"
                     Margin="0,0,10,0"
-                    Fill="{Binding StatusColor, FallbackValue=Red}" />
+                    Fill="{Binding Connection.StatusColor, FallbackValue=Red}" />
                 <TextBlock
                     Width="100"
                     Margin="0,0,15,0"
                     VerticalAlignment="Center"
-                    Text="{Binding StatusText, FallbackValue=未连接}" />
+                    Text="{Binding Connection.StatusText, FallbackValue=未连接}" />
                 <TextBlock
                     Margin="0,0,5,0"
                     VerticalAlignment="Center"
@@ -40,8 +40,8 @@
                     Width="80"
                     Margin="0,0,10,0"
                     VerticalAlignment="Center"
-                    ItemsSource="{Binding AvailablePorts}"
-                    SelectedItem="{Binding SelectedPort, Mode=TwoWay}" />
+                    ItemsSource="{Binding Connection.AvailablePorts}"
+                    SelectedItem="{Binding Connection.SelectedPort, Mode=TwoWay}" />
                 <TextBlock
                     Margin="0,0,5,0"
                     VerticalAlignment="Center"
@@ -50,8 +50,8 @@
                     Width="80"
                     Margin="0,0,10,0"
                     VerticalAlignment="Center"
-                    ItemsSource="{Binding AvailableBaudRate}"
-                    SelectedItem="{Binding SelectedBaudRate, Mode=TwoWay}" />
+                    ItemsSource="{Binding Connection.AvailableBaudRate}"
+                    SelectedItem="{Binding Connection.SelectedBaudRate, Mode=TwoWay}" />
                 <TextBlock
                     Margin="0,0,5,0"
                     VerticalAlignment="Center"
@@ -60,13 +60,13 @@
                     Width="80"
                     Margin="0,0,10,0"
                     VerticalAlignment="Center"
-                    ItemsSource="{Binding AvailableProtocols}"
-                    SelectedItem="{Binding SelectedProtocol, Mode=TwoWay}" />
+                    ItemsSource="{Binding Connection.AvailableProtocols}"
+                    SelectedItem="{Binding Connection.SelectedProtocol, Mode=TwoWay}" />
                 <Button
                     Width="90"
                     Padding="5"
-                    Command="{Binding ToggleConnectCommand}"
-                    Content="{Binding ToggleButtonText, FallbackValue=连接 / 断开}" />
+                    Command="{Binding Connection.ToggleConnectCommand}"
+                    Content="{Binding Connection.ToggleButtonText, FallbackValue=连接 / 断开}" />
             </StackPanel>
         </StackPanel>
 
@@ -103,18 +103,18 @@
                     Minimum="0"
                     SmallChange="1"
                     TickFrequency="1"
-                    Value="{Binding AlarmThreshold, Mode=TwoWay, FallbackValue=50}" />
+                    Value="{Binding Monitor.AlarmThreshold, Mode=TwoWay, FallbackValue=50}" />
                 <TextBlock Text="当前值: " />
                 <TextBlock
                     Margin="0,10,0,15"
                     FontSize="24"
                     FontWeight="Bold"
-                    Text="{Binding CurrentTemperature, StringFormat={}{0:F1} °C}" />
+                    Text="{Binding Monitor.CurrentTemperature, StringFormat={}{0:F1} °C}" />
                 <Button
                     Height="40"
                     VerticalAlignment="Center"
                     Background="DarkRed"
-                    Command="{Binding ResetDeviceCommand}"
+                    Command="{Binding Monitor.ResetDeviceCommand}"
                     Content="⚠️ 设备紧急复位 (Reset)"
                     Foreground="White" />
             </StackPanel>
@@ -127,7 +127,7 @@
                         FontSize="14"
                         HeadersVisibility="Column"
                         IsReadOnly="True"
-                        ItemsSource="{Binding AlarmHistory}"
+                        ItemsSource="{Binding AlarmHistory.AlarmRecords}"
                         RowHeight="30">
                         <DataGrid.Columns>
                             <DataGridTextColumn
@@ -157,7 +157,7 @@
                         FontSize="14"
                         HeadersVisibility="Column"
                         IsReadOnly="True"
-                        ItemsSource="{Binding SystemLogs}"
+                        ItemsSource="{Binding LogConsole.SystemLogs}"
                         RowHeight="30">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow">

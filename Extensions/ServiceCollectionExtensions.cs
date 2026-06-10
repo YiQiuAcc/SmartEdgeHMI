@@ -14,6 +14,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<JsonProtocolService>();
         services.AddSingleton<ModbusProtocolService>();
+        services.AddSingleton<IDeviceCommunicationCoordinator, DeviceCommunicationCoordinator>();
+        services.AddSingleton<IAlarmStateMachine, AlarmStateMachine>();
+        services.AddSingleton<ConnectionViewModel>();
+        services.AddSingleton<MonitorViewModel>();
+        services.AddSingleton<AlarmHistoryViewModel>();
+        services.AddSingleton<LogConsoleViewModel>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
         return services;

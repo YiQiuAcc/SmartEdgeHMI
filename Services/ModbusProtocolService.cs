@@ -4,7 +4,7 @@ using System.Collections.Concurrent;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Constants;
-using SmartEdgeHMI.Models;
+using SmartEdgeHMI.Infrastructure;
 using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
 

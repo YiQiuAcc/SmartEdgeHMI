@@ -1,6 +1,6 @@
 using System.Buffers;
 
-namespace SmartEdgeHMI.Models;
+namespace SmartEdgeHMI.Infrastructure;
 
 /// <summary>高性能滑动窗口缓冲区 (零分配)</summary>
 public class SlidingBuffer(int initialCapacity = 1024) : IDisposable

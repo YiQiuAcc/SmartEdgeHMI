@@ -1,284 +1,197 @@
 /**
- * SmartEdgeHMI Virtual Device Simulator (下位机模拟器)
- *
- * Usage:
- *   npm install serialport
- *   node virtual-device.js [COM_PORT] [BAUD_RATE]
- *
- * Default: COM2, 115200
- *
- * Telemetry format (sent every 500ms):
- *   {"dev_id":"Sensor_01","temp":25.5,"count":100,"status":1,"err_code":0}
- *
- * Command format (received, newline-delimited JSON):
- *   {"cmd_id":"...","dev_id":"Sensor_01","action":3,"timestamp":...,"parameters":...}
+ * SmartEdgeHMI Virtual Device Simulator (双模下位机模拟器)
+ * * 启动方式:
+ * pnpm run sim:json    (JSON主动上报模式, 1秒/次)
+ * pnpm run sim:modbus  (Modbus RTU轮询模式)
  */
 
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
 
-// ── Configuration ───────────────────────────────────────────────────────────
-
-const CONFIG = {
-  portName: process.argv[2] || "COM2",
-  baudRate: parseInt(process.argv[3] || "115200", 10),
-  deviceId: "Sensor_01",
-  telemetryIntervalMs: 500,
-
-  // Temperature simulation
-  tempBase: 45.0, // baseline temperature
-  tempDriftMax: 0.8, // max random walk step per tick
-  tempSpikeChance: 0.05, // 5% chance of a larger spike each tick
-  tempSpikeMax: 4.0, // max spike magnitude
-  tempMin: 20.0,
-  tempMax: 85.0,
-
-  // Default alarm threshold (can be changed via Configure command)
-  alarmThreshold: 60.0,
-};
-
-// ── Device State ────────────────────────────────────────────────────────────
-
-const DeviceStatus = {
-  Offline: 0,
-  Online: 1,
-  Stopped: 2,
-  Maintenance: 3,
-  Fault: 4,
-};
-
-const ErrorCode = {
-  NoError: 0,
-  ThresholdExceeded: 302,
-};
-
-const DeviceAction = {
-  None: 0,
-  Start: 1,
-  Stop: 2,
-  Reset: 3,
-  Configure: 4,
-  TriggerSample: 5,
-};
-
+// 物理环境仿真引擎 (Shared State)
 const state = {
-  status: DeviceStatus.Online,
-  temperature: CONFIG.tempBase,
-  outputCount: 0,
-  alarmThreshold: CONFIG.alarmThreshold,
-  errorCode: ErrorCode.NoError,
+  temperature: 25.0,
+  humidity: 45.0,
+  status: 1, // 1: 正常, 2: 报警
+  threshold: 80.0, // 报警阈值
 };
 
-// ── Serial Port Setup ───────────────────────────────────────────────────────
+// 模拟温湿度随时间自然波动 (Random Walk)
+setInterval(() => {
+  state.temperature += (Math.random() - 0.5) * 0.5;
+  state.humidity += (Math.random() - 0.5) * 1.2;
 
-const port = new SerialPort({
-  path: CONFIG.portName,
-  baudRate: CONFIG.baudRate,
-  autoOpen: false,
-});
+  // 限制在合理物理范围内
+  state.temperature = Math.max(10, Math.min(60, state.temperature));
+  state.humidity = Math.max(20, Math.min(95, state.humidity));
+}, 1000);
 
-const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
+// 核心入口与配置
+const mode = (process.argv[2] || "json").toLowerCase();
+const portName = process.argv[3] || "COM2";
+const baudRate = parseInt(process.argv[4] || "115200", 10);
 
-port.open((err) => {
-  if (err) {
-    console.error(`[FATAL] Cannot open ${CONFIG.portName}: ${err.message}`);
-    console.log(
-      "Make sure the virtual COM port exists (VSPD) and is not in use.",
-    );
-    process.exit(1);
+console.log(`\n🚀 启动虚拟设备模拟器...`);
+console.log(`🔌 端口: ${portName} @ ${baudRate} bps`);
+console.log(
+  `📡 模式: ${mode === "modbus" ? "Modbus RTU (被动轮询)" : "JSON-Lines (主动上报)"}\n`,
+);
+
+const port = new SerialPort({ path: portName, baudRate });
+
+port.on("open", () => {
+  console.log(`[INFO] 串口 ${portName} 已打开，等待上位机连接...`);
+  if (mode === "modbus") {
+    setupModbusProtocol(port);
+  } else {
+    setupJsonProtocol(port);
   }
-  console.log(
-    `[INFO] Virtual device connected on ${CONFIG.portName} @ ${CONFIG.baudRate} baud`,
-  );
-  console.log(`[INFO] Device ID: ${CONFIG.deviceId}`);
-  console.log(`[INFO] Sending telemetry every ${CONFIG.telemetryIntervalMs}ms`);
-  console.log(`[INFO] Alarm threshold: ${state.alarmThreshold}°C`);
-  console.log("─".repeat(55));
 });
 
 port.on("error", (err) => {
-  console.error(`[PORT ERROR] ${err.message}`);
+  console.error(`[FATAL] 串口错误: ${err.message}`);
+  process.exit(1);
 });
 
-port.on("close", () => {
-  console.warn(`[PORT CLOSED] 串口连接已断开，等待重新连接或排查...`);
-});
+// JSON-Lines 协议实现 (主动推流)
+function setupJsonProtocol(port) {
+  const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
 
-// ── Outgoing: periodic telemetry ────────────────────────────────────────────
+  // 发送遥测数据
+  setInterval(() => {
+    const payload = {
+      deviceId: "Sensor_01",
+      temperature: parseFloat(state.temperature.toFixed(1)),
+      humidity: parseFloat(state.humidity.toFixed(1)),
+      status: 1,
+    };
 
-function simulateTemperature() {
-  // Random walk
-  const drift = (Math.random() - 0.5) * 2 * CONFIG.tempDriftMax;
-  state.temperature += drift;
+    // 阈值监控：温度超过阈值时附加错误码
+    if (state.temperature > state.threshold) {
+      payload.status = 4;     // DeviceStatus.Fault
+      payload.err_code = 302; // ErrorCode.ThresholdExceeded
+    }
 
-  // Occasional spike to test alarm handling
-  if (Math.random() < CONFIG.tempSpikeChance) {
-    const spike = (Math.random() - 0.3) * CONFIG.tempSpikeMax;
-    state.temperature += spike;
-  }
+    const jsonStr = JSON.stringify(payload);
+    port.write(jsonStr + "\n");
+    console.log(`[TX] ⬆️ ${jsonStr}`);
+  }, 1000);
 
-  // Clamp
-  state.temperature = Math.max(
-    CONFIG.tempMin,
-    Math.min(CONFIG.tempMax, state.temperature),
-  );
-  state.temperature = Math.round(state.temperature * 10) / 10;
+  // 接收下发命令
+  parser.on("data", (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    console.log(`[RX] ⬇️ ${trimmed}`);
 
-  // Update error code based on threshold
-  state.errorCode =
-    state.temperature > state.alarmThreshold
-      ? ErrorCode.ThresholdExceeded
-      : ErrorCode.NoError;
-
-  // If in fault due to threshold, update status accordingly
-  if (
-    state.errorCode === ErrorCode.ThresholdExceeded &&
-    state.status === DeviceStatus.Online
-  ) {
-    state.status = DeviceStatus.Fault;
-  } else if (
-    state.errorCode === ErrorCode.NoError &&
-    state.status === DeviceStatus.Fault
-  ) {
-    state.status = DeviceStatus.Online;
-  }
-}
-
-function sendTelemetry() {
-  simulateTemperature();
-  state.outputCount++;
-
-  const payload = {
-    dev_id: CONFIG.deviceId,
-    temp: state.temperature,
-    count: state.outputCount,
-    status: state.status,
-    err_code: state.errorCode,
-    quality: 0, // DataQuality.Good
-  };
-
-  const line = JSON.stringify(payload) + "\n";
-
-  // 检查串口是否已成功打开
-  if (!port.isOpen) return;
-
-  // 写入并带上 drain 控制，虽然虚拟串口很少堵塞，但这是好习惯
-  const canWrite = port.write(line, (err) => {
-    if (err) {
-      console.error(`[ERROR] Write failed: ${err.message}`);
+    try {
+      const cmd = JSON.parse(trimmed);
+      // DeviceAction: Reset = 3, Configure = 4
+      if (cmd.action === 3) {
+        state.temperature = 25.0;
+        state.humidity = 45.0;
+        console.log("[EXEC] 设备复位 -> 恢复初始状态");
+      } else if (cmd.action === 4 && cmd.parameters !== undefined) {
+        state.threshold = cmd.parameters;
+        console.log(`[EXEC] 更新阈值 -> ${state.threshold}`);
+      }
+    } catch (err) {
+      console.warn(`[WARN] 忽略非标准 JSON: ${trimmed}`);
     }
   });
-
-  // Console log (compact)
-  const flag =
-    state.errorCode === ErrorCode.ThresholdExceeded ? " ⚠ ALARM" : "";
-  console.log(
-    `[TX] temp=${state.temperature.toFixed(1)}°C  count=${state.outputCount}  status=${state.status}  err=${state.errorCode}${flag}`,
-  );
 }
 
-// ── Incoming: command handling ──────────────────────────────────────────────
+//  Modbus RTU 协议实现 (一问一答)
 
-function handleCommand(cmd) {
-  console.log(
-    `\n[RX] Command received: action=${cmd.action} (${Object.keys(DeviceAction).find((k) => DeviceAction[k] === cmd.action) || "?"})`,
-  );
+function setupModbusProtocol(port) {
+  let rxBuffer = Buffer.alloc(0);
 
-  switch (cmd.action) {
-    case DeviceAction.Reset:
-      console.log("[CMD] >>> Executing RESET <<<");
-      state.temperature = CONFIG.tempBase;
-      state.outputCount = 0;
-      state.status = DeviceStatus.Online;
-      state.errorCode = ErrorCode.NoError;
-      break;
+  port.on("data", (chunk) => {
+    // 将新数据追加到滑动窗口
+    rxBuffer = Buffer.concat([rxBuffer, chunk]);
 
-    case DeviceAction.Configure:
-      if (cmd.parameters != null) {
-        let newThreshold;
-        // 支持两种格式：直接数值或包含 Threshold 属性的对象
-        if (typeof cmd.parameters === 'object' && cmd.parameters.Threshold !== undefined) {
-          newThreshold = Number(cmd.parameters.Threshold);
-        } else {
-          newThreshold = Number(cmd.parameters);
-        }
+    // Modbus RTU 请求帧极小值为 8 字节 (03/06 等常用功能码)
+    while (rxBuffer.length >= 8) {
+      const frame = rxBuffer.subarray(0, 8);
 
-        if (!Number.isNaN(newThreshold) && newThreshold > 0) {
-          state.alarmThreshold = newThreshold;
-          console.log(`[CMD] Threshold updated to ${newThreshold}°C`);
-        } else {
-          console.log(`[CMD] Invalid threshold value: ${JSON.stringify(cmd.parameters)}`);
-        }
+      // 验证 CRC (与 C# 严密对应)
+      const calculatedCrc = calcCrc16(frame.subarray(0, 6));
+      const receivedCrc = frame.readUInt16LE(6);
+
+      if (calculatedCrc === receivedCrc) {
+        handleModbusRequest(port, frame);
+        // 消费这一帧
+        rxBuffer = rxBuffer.subarray(8);
       } else {
-        console.log(
-          "[CMD] Configure command received but no parameters provided",
-        );
+        // CRC失败，丢弃脏字节，滑动1位
+        rxBuffer = rxBuffer.subarray(1);
       }
-      break;
-
-    case DeviceAction.Start:
-      console.log("[CMD] >>> START <<<");
-      state.status = DeviceStatus.Online;
-      state.errorCode = ErrorCode.NoError;
-      break;
-
-    case DeviceAction.Stop:
-      console.log("[CMD] >>> STOP <<<");
-      state.status = DeviceStatus.Stopped;
-      break;
-
-    case DeviceAction.TriggerSample:
-      console.log("[CMD] Triggering single sample");
-      sendTelemetry();
-      break;
-
-    default:
-      console.log(`[CMD] Unknown action code: ${cmd.action}`);
-      break;
-  }
-}
-
-parser.on("data", (line) => {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-
-  // 简单的合法性前置判断：确认是 JSON 对象格式
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
-    console.warn(`[WARN] 收到不完整的帧结构: ${trimmed}`);
-    return;
-  }
-
-  try {
-    const cmd = JSON.parse(trimmed);
-    if (cmd.action !== undefined) {
-      handleCommand(cmd);
     }
-  } catch (err) {
-    console.warn(
-      `[WARN] JSON 解析失败 (${err.message}): ${trimmed.substring(0, 80)}`,
+  });
+}
+
+function handleModbusRequest(port, frame) {
+  const slaveId = frame[0];
+  const functionCode = frame[1];
+  const startAddr = frame.readUInt16BE(2);
+  const valueOrCount = frame.readUInt16BE(4); // 对于 03 是 Count，对于 06 是 Value
+
+  if (slaveId !== 0x01) return; // 假设本机站号为 1
+
+  if (functionCode === 0x03) {
+    // 收到指令：03 读保持寄存器
+    const byteCount = valueOrCount * 2;
+    const response = Buffer.alloc(3 + byteCount + 2);
+
+    response[0] = slaveId;
+    response[1] = functionCode;
+    response[2] = byteCount;
+
+    let offset = 3;
+    for (let i = 0; i < valueOrCount; i++) {
+      const addr = startAddr + i;
+      let val = 0;
+      // 地址映射表 (上位机解析 C# 必须对齐)
+      if (addr === 0)
+        val = Math.round(state.temperature * 10); // 寄存器0: 温度
+      else if (addr === 1)
+        val = Math.round(state.humidity * 10); // 寄存器1: 湿度
+      else if (addr === 2) val = state.status; // 寄存器2: 状态
+
+      response.writeUInt16BE(val, offset);
+      offset += 2;
+    }
+
+    const crc = calcCrc16(response.subarray(0, offset));
+    response.writeUInt16LE(crc, offset);
+    port.write(response);
+
+    console.log(
+      `[Modbus TX] 读寄存器响应 -> ${response.toString("hex").toUpperCase()}`,
     );
-  }
-});
+  } else if (functionCode === 0x06) {
+    // 收到指令：06 写单个寄存器
+    console.log(
+      `[Modbus RX] 收到写寄存器指令 (Addr: ${startAddr}, Val: ${valueOrCount})`,
+    );
 
-// ── Lifespan ────────────────────────────────────────────────────────────────
-
-const telemetryTimer = setInterval(sendTelemetry, CONFIG.telemetryIntervalMs);
-
-function cleanup() {
-  console.log("\n[INFO] Shutting down virtual device...");
-  clearInterval(telemetryTimer);
-  if (port.isOpen) {
-    port.close((err) => {
-      if (err) console.error(`[ERROR] Close failed: ${err.message}`);
-      else console.log("[INFO] Serial port closed.");
-      process.exit(0);
-    });
-  } else {
-    process.exit(0);
+    // 原样返回作为 ACK 响应
+    port.write(frame);
   }
 }
 
-process.on("SIGINT", cleanup);
-process.on("SIGTERM", cleanup);
-
-console.log("[INFO] Virtual device simulator started. Press Ctrl+C to stop.");
+// 标准 Modbus RTU CRC16 计算函数 (与上位机 C# 端一致)
+function calcCrc16(buffer) {
+  let crc = 0xffff;
+  for (let i = 0; i < buffer.length; i++) {
+    crc ^= buffer[i];
+    for (let j = 0; j < 8; j++) {
+      if ((crc & 0x0001) !== 0) {
+        crc >>= 1;
+        crc ^= 0xa001;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+  return crc;
+}

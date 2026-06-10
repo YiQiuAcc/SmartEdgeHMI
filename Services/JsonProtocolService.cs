@@ -3,8 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
-using SmartEdgeHMI.Models;
-
+using SmartEdgeHMI.Infrastructure;
 using SmartEdgeHMI.Models.DTOs;
 using SmartEdgeHMI.Models.Messages;
 

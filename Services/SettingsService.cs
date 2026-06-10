@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Serilog;
 using SmartEdgeHMI.Models;
 
@@ -10,11 +11,14 @@ public class SettingsService : ISettingsService
     private AppSettings _currentSettings = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly string _filePath;
+    private readonly IConfiguration _configuration;
     private static readonly JsonSerializerOptions _saveOptions = new() { WriteIndented = true };
 
-    public SettingsService()
+    public SettingsService(IConfiguration configuration)
     {
+        _configuration = configuration;
         _filePath = Path.Combine(AppContext.BaseDirectory, "settings.json");
+        LoadSettings();
     }
 
     public AppSettings Current => _currentSettings;
@@ -23,7 +27,8 @@ public class SettingsService : ISettingsService
     {
         if (!File.Exists(_filePath))
         {
-            Log.Information("设置文件不存在，生成默认配置文件: {Path}", _filePath);
+            Log.Information("设置文件不存在，从 appsettings.json 加载默认值: {Path}", _filePath);
+            ApplyDefaultsFromConfiguration();
             string defaultJson = JsonSerializer.Serialize(_currentSettings, _saveOptions);
             File.WriteAllText(_filePath, defaultJson);
             return;
@@ -48,6 +53,21 @@ public class SettingsService : ISettingsService
         {
             _lock.Release();
         }
+    }
+
+    private void ApplyDefaultsFromConfiguration()
+    {
+        var modbus = _configuration.GetSection("Modbus");
+        if (byte.TryParse(modbus["SlaveAddress"], out byte addr))
+            _currentSettings.Modbus.SlaveAddress = addr;
+
+        var ui = _configuration.GetSection("UI");
+        if (int.TryParse(ui["ChartRefreshRateMs"], out int rate))
+            _currentSettings.UI.ChartRefreshRateMs = rate;
+
+        var hw = _configuration.GetSection("Hardware");
+        if (double.TryParse(hw["DefaultThreshold"], out double th))
+            _currentSettings.Hardware.DefaultThreshold = th;
     }
 
     public async Task SaveAsync(CancellationToken token)

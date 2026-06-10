@@ -5,15 +5,18 @@ namespace SmartEdgeHMI.Models.DTOs;
 
 /// <summary>
 /// 硬件发给上位机的 JSON 数据报文
-/// 例如: {"dev_id":"Sensor_01","temp":25.5,"count":100,"status":1,"err_code":0,"quality":0}
+/// 例如: {"deviceId":"Sensor_01","temperature":25.5,"humidity":45.0,"status":1}
 /// </summary>
 public class TelemetryPayload
 {
-    [JsonPropertyName("dev_id")]
+    [JsonPropertyName("deviceId")]
     public string DeviceId { get; init; } = string.Empty;
 
-    [JsonPropertyName("temp")]
+    [JsonPropertyName("temperature")]
     public double Temperature { get; init; }
+
+    [JsonPropertyName("humidity")]
+    public double Humidity { get; init; }
 
     [JsonPropertyName("count")]
     public long OutputCount { get; init; }

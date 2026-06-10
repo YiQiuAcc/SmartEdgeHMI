@@ -46,6 +46,8 @@ public class SerialPortService : ISerialPortService, IDisposable
             return;
         }
 
+        WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(portName, ConnectionState.Connected));
+
         // 物理层读线程：用 ReadLine() 可靠读取，转字节写入 Channel
         _ = Task.Run(async () =>
             {
@@ -117,8 +119,8 @@ public class SerialPortService : ISerialPortService, IDisposable
 
     private void HandleUnexpectedDisconnect(string portName)
     {
+        WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(portName, ConnectionState.Error, "硬件连接异常断开"));
         ClosePort(portName);
-        WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(portName, ConnectionState.Disconnected, "Unexpected hardware disconnection"));
     }
 
     public void ClosePort(string portName)
@@ -136,6 +138,8 @@ public class SerialPortService : ISerialPortService, IDisposable
                 context.Port.Dispose();
                 context.Cts.Dispose();
             }
+
+            WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(portName, ConnectionState.Disconnected));
         }
     }
 

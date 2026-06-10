@@ -1,22 +1,13 @@
 {
-  "name": "simulator",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "node virtual-device.js COM2 115200"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "^11.2.2",
-      "onFail": "download"
-    }
-  },
+  "name": "smartedge-hmi-simulator",
+  "version": "2.0.0",
+  "description": "Virtual Device Simulator for SmartEdgeHMI",
+  "main": "virtual-device.js",
   "type": "module",
+  "scripts": {
+    "sim:json": "node virtual-device.js json COM2 115200",
+    "sim:modbus": "node virtual-device.js modbus COM2 115200"
+  },
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
     "serialport": "^13.0.0"
