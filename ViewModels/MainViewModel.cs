@@ -16,13 +16,14 @@ namespace SmartEdgeHMI.ViewModels;
 
 public partial class MainViewModel : ObservableObject,
     IRecipient<TelemetryReceivedMessage>,
+    IRecipient<SensorDataMessage>,
     IRecipient<DeviceStateChangedMessage>,
     IRecipient<LogUpdateMessage>
 {
     private readonly ISerialPortService _serialPortService;
     private readonly ISqliteRepository _sqliteRepo;
     private readonly ISettingsService _settingsService;
-    private readonly ModbusService _modbusService;
+    private readonly ModbusProtocolService _modbusService;
 
     // 多端口连接跟踪
     private readonly HashSet<string> _connectedPorts = [];
@@ -74,7 +75,7 @@ public partial class MainViewModel : ObservableObject,
         ISerialPortService serialPortService,
         ISqliteRepository sqliteRepo,
         ISettingsService settingsService,
-        ModbusService modbusService)
+        ModbusProtocolService modbusService)
     {
         _serialPortService = serialPortService;
         _sqliteRepo = sqliteRepo;
@@ -94,18 +95,11 @@ public partial class MainViewModel : ObservableObject,
     {
         try
         {
-            string savedThreshold = _settingsService.GetSetting("HardwareSettings:DefaultThreshold");
-            if (!string.IsNullOrEmpty(savedThreshold) && double.TryParse(savedThreshold, out double threshold))
-            {
-                _isInitializing = true;
-                AlarmThreshold = threshold;
-                _isInitializing = false;
-                Log.Information("已从配置文件加载阈值: {Threshold}°C", threshold);
-            }
-            else
-            {
-                Log.Information("未找到保存的阈值配置，使用默认值: {Threshold}°C", AlarmThreshold);
-            }
+            double threshold = _settingsService.Current.Hardware.DefaultThreshold;
+            _isInitializing = true;
+            AlarmThreshold = threshold;
+            _isInitializing = false;
+            Log.Information("已从配置文件加载阈值: {Threshold}°C", threshold);
         }
         catch (Exception ex)
         {
@@ -298,25 +292,25 @@ public partial class MainViewModel : ObservableObject,
         switch (SelectedProtocol)
         {
             case CommunicationProtocol.JSON:
-            {
-                var command = new CommandPayload(
-                    CommandId: Guid.NewGuid(),
-                    DeviceId: AppConstants.DefaultDeviceName,
-                    Action: DeviceAction.Reset,
-                    TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-                );
-                await _serialPortService.WriteStringAsync(SelectedPort, JsonSerializer.Serialize(command));
-                Log.Information("[{Protocol}] 设备复位指令已发送至 {Port}", SelectedProtocol, SelectedPort);
-                break;
-            }
+                {
+                    var command = new CommandPayload(
+                        CommandId: Guid.NewGuid(),
+                        DeviceId: AppConstants.DefaultDeviceName,
+                        Action: DeviceAction.Reset,
+                        TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                    );
+                    await _serialPortService.WriteStringAsync(SelectedPort, JsonSerializer.Serialize(command));
+                    Log.Information("[{Protocol}] 设备复位指令已发送至 {Port}", SelectedProtocol, SelectedPort);
+                    break;
+                }
             case CommunicationProtocol.Modbus:
-            {
-                // 写保持寄存器 0x0001 = 1 触发复位
-                await _modbusService.WriteSingleRegisterAsync(SelectedPort,
-                    AppConstants.DefaultModbusSlaveAddress, 0x0001, 1);
-                Log.Information("[{Protocol}] Modbus 复位指令已发送至 {Port}", SelectedProtocol, SelectedPort);
-                break;
-            }
+                {
+                    // 写保持寄存器 0x0001 = 1 触发复位
+                    await _modbusService.WriteSingleRegisterAsync(SelectedPort,
+                        AppConstants.DefaultModbusSlaveAddress, 0x0001, 1);
+                    Log.Information("[{Protocol}] Modbus 复位指令已发送至 {Port}", SelectedProtocol, SelectedPort);
+                    break;
+                }
         }
     }
 
@@ -365,7 +359,8 @@ public partial class MainViewModel : ObservableObject,
 
     private async Task SaveThresholdAsync(double value, CancellationToken token)
     {
-        await _settingsService.SetSettingsAsync("HardwareSettings:DefaultThreshold", value.ToString(), token);
+        _settingsService.Current.Hardware.DefaultThreshold = value;
+        await _settingsService.SaveAsync(token);
 
         // 广播阈值到所有已连接端口
         foreach (string portName in _connectedPorts.ToList())
@@ -373,26 +368,26 @@ public partial class MainViewModel : ObservableObject,
             switch (SelectedProtocol)
             {
                 case CommunicationProtocol.JSON:
-                {
-                    var command = new CommandPayload(
-                        CommandId: Guid.NewGuid(),
-                        DeviceId: AppConstants.DefaultDeviceName,
-                        Action: DeviceAction.Configure,
-                        TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                        Parameters: value
-                    );
-                    await _serialPortService.WriteStringAsync(portName, JsonSerializer.Serialize(command));
-                    Log.Information("[JSON] 阈值配置已下发至 {Port}: {Value}°C", portName, value);
-                    break;
-                }
+                    {
+                        var command = new CommandPayload(
+                            CommandId: Guid.NewGuid(),
+                            DeviceId: AppConstants.DefaultDeviceName,
+                            Action: DeviceAction.Configure,
+                            TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                            Parameters: value
+                        );
+                        await _serialPortService.WriteStringAsync(portName, JsonSerializer.Serialize(command));
+                        Log.Information("[JSON] 阈值配置已下发至 {Port}: {Value}°C", portName, value);
+                        break;
+                    }
                 case CommunicationProtocol.Modbus:
-                {
-                    // 写保持寄存器 0x0002 = 阈值 (取整数部分)
-                    await _modbusService.WriteSingleRegisterAsync(portName,
-                        AppConstants.DefaultModbusSlaveAddress, 0x0002, (ushort)value);
-                    Log.Information("[Modbus] 阈值配置已下发至 {Port}: {Value}°C", portName, (ushort)value);
-                    break;
-                }
+                    {
+                        // 写保持寄存器 0x0002 = 阈值 (取整数部分)
+                        await _modbusService.WriteSingleRegisterAsync(portName,
+                            AppConstants.DefaultModbusSlaveAddress, 0x0002, (ushort)value);
+                        Log.Information("[Modbus] 阈值配置已下发至 {Port}: {Value}°C", portName, (ushort)value);
+                        break;
+                    }
             }
         }
     }
@@ -419,5 +414,11 @@ public partial class MainViewModel : ObservableObject,
             foreach (var item in data)
                 AlarmHistory.Add(item);
         });
+    }
+
+    public void Receive(SensorDataMessage message)
+    {
+        float temperature = message.Temperature;
+        DispatchToUI(() => CurrentTemperature = temperature);
     }
 }

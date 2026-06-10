@@ -1,10 +1,12 @@
 namespace SmartEdgeHMI.Services;
 
+using SmartEdgeHMI.Models;
+
 public interface ISettingsService
 {
-    public string GetSetting(string key);
+    AppSettings Current { get; }
 
-    public void LoadSettings();
+    void LoadSettings();
 
-    public Task SetSettingsAsync(string key, string value, CancellationToken token);
+    Task SaveAsync(CancellationToken token);
 }

@@ -1,108 +1,67 @@
 using System.IO;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Serilog;
+using SmartEdgeHMI.Models;
 
 namespace SmartEdgeHMI.Services;
 
 public class SettingsService : ISettingsService
 {
-    private readonly string _filePath;
-    private JsonNode? _settingsCache; // 内存缓存
+    private AppSettings _currentSettings = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly string _filePath;
+    private static readonly JsonSerializerOptions _saveOptions = new() { WriteIndented = true };
 
     public SettingsService()
     {
-        // 获取当前用户的 LocalAppData 目录
-        string? localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-
-        // 为应用创建一个专属文件夹
-        string? appFolder = Path.Combine(localAppData, "SmartEdgeHMI");
-        if (!Directory.Exists(appFolder))
-        {
-            Directory.CreateDirectory(appFolder);
-        }
-
-        _filePath = Path.Combine(appFolder, "usersettings.json");
+        _filePath = Path.Combine(AppContext.BaseDirectory, "settings.json");
     }
 
-    public string GetSetting(string key)
-    {
-        if (_settingsCache is null) return string.Empty;
-
-        try
-        {
-            string[] path = key.Split(':');
-            JsonNode? node = _settingsCache;
-            foreach (string segment in path)
-            {
-                node = node?[segment];
-                if (node is null) return string.Empty;
-            }
-            return node.GetValue<string>();
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
+    public AppSettings Current => _currentSettings;
 
     public void LoadSettings()
     {
+        if (!File.Exists(_filePath))
+        {
+            Log.Information("设置文件不存在，生成默认配置文件: {Path}", _filePath);
+            string defaultJson = JsonSerializer.Serialize(_currentSettings, _saveOptions);
+            File.WriteAllText(_filePath, defaultJson);
+            return;
+        }
+
+        _lock.Wait();
         try
         {
-            if (!File.Exists(_filePath))
+            string json = File.ReadAllText(_filePath);
+            AppSettings? loaded = JsonSerializer.Deserialize<AppSettings>(json);
+            if (loaded != null)
             {
-                File.WriteAllText(_filePath, "{}");
-                _settingsCache = new JsonObject();
+                _currentSettings = loaded;
+                Log.Information("已加载设置文件: {Path}", _filePath);
             }
-            else
-            {
-                string json = File.ReadAllText(_filePath);
-                _settingsCache = JsonNode.Parse(json) ?? new JsonObject();
-            }
-            Log.Information("Settings loaded into cache from {Path}", _filePath);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Failed to load settings, resetting to defaults");
-            File.WriteAllText(_filePath, "{}");
+            Log.Error(ex, "加载设置文件失败: {Path}", _filePath);
+        }
+        finally
+        {
+            _lock.Release();
         }
     }
 
-    public async Task SetSettingsAsync(string key, string value, CancellationToken token)
+    public async Task SaveAsync(CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         await _lock.WaitAsync(token);
         try
         {
-            // 直接操作缓存
-            _settingsCache ??= new JsonObject();
-            var node = _settingsCache;
-            string[]? path = key.Split(':');
-            for (int i = 0; i < path.Length - 1; i++)
-            {
-                string? segment = path[i];
-                if (node[segment] is not JsonObject child)
-                {
-                    child = [];
-                    node[segment] = child;
-                }
-                node = child;
-            }
-
-            string? leafKey = path[^1];
-            node[leafKey] = JsonValue.Create(value);
-            string jsonOut = JsonSerializer.Serialize(_settingsCache, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(_filePath, jsonOut, token);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to persist setting {Key} = {Value}", key, value);
-            throw;
+            string json = JsonSerializer.Serialize(_currentSettings, _saveOptions);
+            // 写到一个临时文件
+            string tempPath = _filePath + ".tmp";
+            await File.WriteAllTextAsync(tempPath, json, token);
+            // 写入成功后覆盖原文件
+            File.Move(tempPath, _filePath, overwrite: true);
         }
         finally
         {

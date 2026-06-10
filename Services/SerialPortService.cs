@@ -30,7 +30,6 @@ public class SerialPortService : ISerialPortService, IDisposable
 
         var channelOptions = new BoundedChannelOptions(1000)
         {
-            FullMode = BoundedChannelFullMode.DropOldest,
             SingleWriter = true,
             SingleReader = true
         };

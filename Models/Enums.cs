@@ -57,7 +57,7 @@ public enum CommunicationProtocol : byte
     Modbus = 1
 }
 
-public enum ModbusFunctionCode
+public enum ModbusFunctionCode : byte
 {
     ReadCoils = 1,
     ReadDiscreteInputs = 2,
