@@ -2,7 +2,7 @@ using SmartEdgeHMI.Models.Entities;
 
 namespace SmartEdgeHMI.Services;
 
-public interface ISqliteRepository
+public interface ISqliteRepository : IAsyncDisposable
 {
     Task InitializeDatabaseAsync();
 
