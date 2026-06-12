@@ -3,14 +3,16 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Constants;
+using SmartEdgeHMI.Models.DTOs;
+using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.Services;
 
 namespace SmartEdgeHMI.ViewModels;
 
 public partial class MonitorViewModel : ViewModelBase,
-    IRecipient<TelemetryReceivedMessage>,
-    IRecipient<SensorDataMessage>,
+    IRecipient<DeviceTelemetryMessage>,
+    IRecipient<SensorReadingMessage>,
     IRecipient<DeviceStateChangedMessage>
 {
     private readonly ISettingsService _settingsService;
@@ -56,9 +58,9 @@ public partial class MonitorViewModel : ViewModelBase,
         }
     }
 
-    public void Receive(TelemetryReceivedMessage message)
+    public void Receive(DeviceTelemetryMessage message)
     {
-        var payload = message.Value;
+        var payload = message.Payload;
         DispatchToUI(() => CurrentTemperature = payload.Temperature);
 
         var alarmRecord = _alarmStateMachine.Evaluate(payload);
@@ -70,10 +72,28 @@ public partial class MonitorViewModel : ViewModelBase,
         }
     }
 
-    public void Receive(SensorDataMessage message)
+    public void Receive(SensorReadingMessage message)
     {
         float temperature = message.Temperature;
         DispatchToUI(() => CurrentTemperature = temperature);
+
+        var payload = new TelemetryPayload
+        {
+            DeviceId = AppConstants.DefaultDeviceName,
+            Temperature = message.Temperature,
+            Humidity = message.Humidity,
+            StatusCode = message.StatusCode,
+            ErrorCode = message.ErrorCode,
+            QualityCode = DataQuality.Good
+        };
+
+        var alarmRecord = _alarmStateMachine.Evaluate(payload);
+        if (alarmRecord is not null)
+        {
+            WeakReferenceMessenger.Default.Send(new AlarmRecordedMessage(alarmRecord));
+            Log.Warning("报警触发: {DeviceId}, 错误码: {ErrorCode}, 触发值: {Value}",
+                alarmRecord.DeviceId, alarmRecord.AlarmCode, alarmRecord.TriggerValue);
+        }
     }
 
     public void Receive(DeviceStateChangedMessage message)

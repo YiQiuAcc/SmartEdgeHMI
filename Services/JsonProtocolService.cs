@@ -66,7 +66,7 @@ public class JsonProtocolService : IRecipient<RawDataReceivedMessage>, IRecipien
 
             if (payload != null)
             {
-                WeakReferenceMessenger.Default.Send(new TelemetryReceivedMessage(portName, payload));
+                WeakReferenceMessenger.Default.Send(new DeviceTelemetryMessage(portName, payload));
             }
         }
         catch (JsonException ex)

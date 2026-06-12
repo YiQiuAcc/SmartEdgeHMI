@@ -17,7 +17,7 @@
     - 封装扫描本机可用 COM 口、安全打开/关闭串口的方法。
     - **核心** ：开启后台长时间运行的 `Task` 监听串口，通过 `WeakReferenceMessenger` 异步广播 JSON 数据。
 - [x] **实现双向控制** ：实现 `SendCommandAsync`，将 `DeviceCommand` 对象序列化为字节流写入串口。
-- [ ] **🚀【高级进阶提示】面向未来的工业标准驱动升级**：
+- [x] **🚀【高级进阶提示】面向未来的工业标准驱动升级**：
     - _提示_：基础版跑通后，可扩展一个 `ModbusService`，手写 **CRC16 校验算法**，实现对标准 PLC（西门子/汇川等）的寄存器（Holding Registers）读写，展现“字节级操纵底层”的能力。
     - _提示_：利用 .NET 8 的 `ReadOnlySpan<byte>` 与内存池 `ArrayPool` 处理字节流，解决高频高并发下的**粘包断包**问题，主打“零分配内存（Zero-Allocation）与极低 GC 压力”。
 

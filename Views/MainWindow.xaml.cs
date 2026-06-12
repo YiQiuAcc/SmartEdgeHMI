@@ -8,12 +8,13 @@ using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Views;
 
-public partial class MainWindow : Window, IRecipient<TelemetryReceivedMessage>
+public partial class MainWindow : Window,
+    IRecipient<DeviceTelemetryMessage>,
+    IRecipient<SensorReadingMessage>
 {
     private readonly Dictionary<string, ScottPlot.Plottables.DataStreamer> _streamers = [];
     private static readonly Color[] _streamerColors = [Colors.Cyan, Colors.Gold];
 
-    // 增加一个渲染定时器
     private readonly DispatcherTimer _renderTimer;
 
     public MainWindow(IServiceProvider serviceProvider)
@@ -24,7 +25,6 @@ public partial class MainWindow : Window, IRecipient<TelemetryReceivedMessage>
         DataContext = serviceProvider.GetService<MainViewModel>();
         WeakReferenceMessenger.Default.RegisterAll(this);
 
-        // 初始化并启动 30 FPS 渲染定时器
         _renderTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(33)
@@ -51,22 +51,29 @@ public partial class MainWindow : Window, IRecipient<TelemetryReceivedMessage>
         DataPlot.Refresh();
     }
 
-    /// <summary>订阅流通信总线分发的强类型遥测</summary>
-    public void Receive(TelemetryReceivedMessage message)
+    public void Receive(DeviceTelemetryMessage message)
+        => AddTemperature(message.PortName, message.Payload.Temperature);
+
+    public void Receive(SensorReadingMessage message)
+        => AddTemperature(message.PortName, message.Temperature);
+
+    private void AddTemperature(string portName, double temperature)
     {
-        Application.Current.Dispatcher.BeginInvoke(() =>
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null) return;
+
+        dispatcher.BeginInvoke(() =>
         {
-            if (!_streamers.TryGetValue(message.PortName, out var streamer))
+            if (!_streamers.TryGetValue(portName, out var streamer))
             {
                 streamer = DataPlot.Plot.Add.DataStreamer(1000);
                 streamer.LineWidth = 2;
                 streamer.Color = _streamerColors[_streamers.Count % _streamerColors.Length];
-
-                _streamers[message.PortName] = streamer;
+                _streamers[portName] = streamer;
                 DataPlot.Plot.Axes.AutoScale();
             }
 
-            streamer.Add(message.Temperature);
+            streamer.Add(temperature);
         });
     }
 }

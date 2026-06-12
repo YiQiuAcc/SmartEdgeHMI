@@ -7,17 +7,25 @@ using SmartEdgeHMI.Constants;
 using SmartEdgeHMI.Infrastructure;
 using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Services;
 
-public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IDisposable
+public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipient<DeviceStateChangedMessage>, IDisposable
 {
     private readonly ISerialPortService _serialPortService;
+    private readonly ConnectionViewModel _connectionVm;
     private readonly ConcurrentDictionary<string, SlidingBuffer> _buffers = new();
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _pollingTokens = new();
 
-    public ModbusProtocolService(ISerialPortService serialPortService)
+    private const int PollingIntervalMs = 1000;
+    private const ushort PollStartAddress = 0;
+    private const ushort PollRegisterCount = 3;
+
+    public ModbusProtocolService(ISerialPortService serialPortService, ConnectionViewModel connectionVm)
     {
         _serialPortService = serialPortService;
+        _connectionVm = connectionVm;
         WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
@@ -64,6 +72,16 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IDispos
         }
     }
 
+    /// <summary>读多个保持寄存器</summary>
+    public Task ReadHoldingRegistersAsync(string portName, byte slaveAddress, ushort startAddress, ushort quantity)
+    {
+        Span<byte> data = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt16BigEndian(data.Slice(0, 2), startAddress);
+        BinaryPrimitives.WriteUInt16BigEndian(data.Slice(2, 2), quantity);
+
+        return SendModbusCommandAsync(portName, slaveAddress, (byte)ModbusFunctionCode.ReadHoldingRegisters, data);
+    }
+
     /// <summary>写单个保持寄存器</summary>
     public Task WriteSingleRegisterAsync(string portName, byte slaveAddress, ushort registerAddress, ushort value)
     {
@@ -85,11 +103,73 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IDispos
         lock (buffer)
         {
             buffer.Append(message.Data);
-            ProcessBuffer(buffer);
+            ProcessBuffer(buffer, message.PortName);
         }
     }
 
-    private static void ProcessBuffer(SlidingBuffer buffer)
+    public void Receive(DeviceStateChangedMessage message)
+    {
+        if (_connectionVm.SelectedProtocol != CommunicationProtocol.Modbus)
+            return;
+
+        switch (message.State)
+        {
+            case ConnectionState.Connected:
+                StartPolling(message.PortName);
+                break;
+            case ConnectionState.Disconnected:
+            case ConnectionState.Error:
+                StopPolling(message.PortName);
+                break;
+        }
+    }
+
+    private void StartPolling(string portName)
+    {
+        var cts = new CancellationTokenSource();
+        if (!_pollingTokens.TryAdd(portName, cts))
+        {
+            cts.Dispose();
+            return;
+        }
+
+        _ = Task.Run(() => PollLoopAsync(portName, cts.Token), cts.Token);
+        Log.Information("[Modbus] 已启动 {Port} 的轮询任务 (间隔 {Interval}ms)", portName, PollingIntervalMs);
+    }
+
+    private void StopPolling(string portName)
+    {
+        if (_pollingTokens.TryRemove(portName, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+            Log.Information("[Modbus] 已停止 {Port} 的轮询任务", portName);
+        }
+    }
+
+    private async Task PollLoopAsync(string portName, CancellationToken ct)
+    {
+        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(PollingIntervalMs));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await ReadHoldingRegistersAsync(portName,
+                    AppConstants.DefaultModbusSlaveAddress, PollStartAddress, PollRegisterCount);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[Modbus] {Port} 轮询循环异常退出", portName);
+        }
+        finally
+        {
+            timer.Dispose();
+        }
+    }
+
+    private static void ProcessBuffer(SlidingBuffer buffer, string portName)
     {
         // Modbus RTU 极短的合法报文是 5 个字节
         while (buffer.Length >= 5)
@@ -142,14 +222,26 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IDispos
 
                     ReadOnlySpan<byte> dataSpan = frame.Slice(3, dataLength);
 
-                    // 高效、安全的跨平台解析
                     short rawTemp = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(0, 2));
                     short rawHum = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(2, 2));
 
                     float actualTemperature = rawTemp / 10f;
                     float actualHumidity = rawHum / 10f;
 
-                    WeakReferenceMessenger.Default.Send(new SensorDataMessage(actualTemperature, actualHumidity));
+                    var statusCode = DeviceStatus.Online;
+                    var errorCode = ErrorCode.NoError;
+
+                    if (dataLength >= 6)
+                    {
+                        ushort rawStatus = BinaryPrimitives.ReadUInt16BigEndian(dataSpan.Slice(4, 2));
+                        statusCode = (DeviceStatus)rawStatus;
+                        errorCode = statusCode == DeviceStatus.Fault
+                            ? ErrorCode.ThresholdExceeded
+                            : ErrorCode.NoError;
+                    }
+
+                    WeakReferenceMessenger.Default.Send(new SensorReadingMessage(
+                        portName, actualTemperature, actualHumidity, statusCode, errorCode));
                 }
 
                 // 处理成功, 消费掉这一整帧数据 (解决粘包)
@@ -184,7 +276,13 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IDispos
 
     public void Dispose()
     {
-        // 释放所有租用的内存
+        foreach (var cts in _pollingTokens.Values)
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+        _pollingTokens.Clear();
+
         foreach (var buffer in _buffers.Values)
         {
             buffer.Dispose();

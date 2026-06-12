@@ -24,6 +24,13 @@ setInterval(() => {
   // 限制在合理物理范围内
   state.temperature = Math.max(10, Math.min(60, state.temperature));
   state.humidity = Math.max(20, Math.min(95, state.humidity));
+
+  // 阈值监控 (Modbus 与 JSON 共用)
+  if (state.temperature > state.threshold) {
+    state.status = 4; // DeviceStatus.Fault
+  } else {
+    state.status = 1; // DeviceStatus.Online
+  }
 }, 1000);
 
 // 核心入口与配置
@@ -63,12 +70,11 @@ function setupJsonProtocol(port) {
       deviceId: "Sensor_01",
       temperature: parseFloat(state.temperature.toFixed(1)),
       humidity: parseFloat(state.humidity.toFixed(1)),
-      status: 1,
+      status: state.status,
     };
 
     // 阈值监控：温度超过阈值时附加错误码
-    if (state.temperature > state.threshold) {
-      payload.status = 4;     // DeviceStatus.Fault
+    if (state.status === 4) {
       payload.err_code = 302; // ErrorCode.ThresholdExceeded
     }
 
@@ -170,9 +176,28 @@ function handleModbusRequest(port, frame) {
     );
   } else if (functionCode === 0x06) {
     // 收到指令：06 写单个寄存器
+    const addrName =
+      startAddr === 2
+        ? "报警阈值"
+        : startAddr === 1
+          ? "复位指令"
+          : `寄存器${startAddr}`;
     console.log(
-      `[Modbus RX] 收到写寄存器指令 (Addr: ${startAddr}, Val: ${valueOrCount})`,
+      `[Modbus RX] 收到写寄存器指令 (${addrName}, Val: ${valueOrCount})`,
     );
+
+    // 写入寄存器 2: 更新报警阈值
+    if (startAddr === 2) {
+      state.threshold = valueOrCount;
+      console.log(`[EXEC] 更新阈值 -> ${state.threshold}°C`);
+    }
+    // 写入寄存器 1: 复位设备
+    else if (startAddr === 1 && valueOrCount === 1) {
+      state.temperature = 25.0;
+      state.humidity = 45.0;
+      state.status = 1;
+      console.log("[EXEC] 设备复位 -> 恢复初始状态");
+    }
 
     // 原样返回作为 ACK 响应
     port.write(frame);
