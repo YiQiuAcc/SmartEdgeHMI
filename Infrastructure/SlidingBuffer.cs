@@ -17,12 +17,25 @@ public class SlidingBuffer(int initialCapacity = 1024) : IDisposable
         {
             // 扩容策略：租用更大的数组并拷贝旧数据, 然后归还旧数组
             byte[] newBuffer = ArrayPool<byte>.Shared.Rent((_position + data.Length) * 2);
-            _buffer.AsSpan(0, _position).CopyTo(newBuffer);
+            try
+            {
+                _buffer.AsSpan(0, _position).CopyTo(newBuffer);
+                data.CopyTo(newBuffer.AsSpan(_position));
+            }
+            catch
+            {
+                ArrayPool<byte>.Shared.Return(newBuffer);
+                throw;
+            }
             ArrayPool<byte>.Shared.Return(_buffer);
             _buffer = newBuffer;
+            _position += data.Length;
         }
-        data.CopyTo(_buffer.AsSpan(_position));
-        _position += data.Length;
+        else
+        {
+            data.CopyTo(_buffer.AsSpan(_position));
+            _position += data.Length;
+        }
     }
 
     public void Consume(int byteCount)

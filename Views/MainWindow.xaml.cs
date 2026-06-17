@@ -22,7 +22,7 @@ public partial class MainWindow : Window,
         InitializeComponent();
         InitializePlot();
 
-        DataContext = serviceProvider.GetService<MainViewModel>();
+        DataContext = serviceProvider.GetRequiredService<MainViewModel>();
         WeakReferenceMessenger.Default.RegisterAll(this);
 
         _renderTimer = new DispatcherTimer

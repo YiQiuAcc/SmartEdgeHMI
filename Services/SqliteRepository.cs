@@ -29,7 +29,7 @@ public sealed class SqliteRepository : ISqliteRepository
     public SqliteRepository(IConfiguration config)
     {
         // 简化配置读取
-        _connectionString = config.GetConnectionString("DefaultConnection") ?? "Data Source=SmartEdgeHMI.db";
+        _connectionString = config["DatabaseSettings:DefaultConnection"] ?? "Data Source=SmartEdgeHMI.db";
         _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
 
         var options = new BoundedChannelOptions(BatchSize * 10)

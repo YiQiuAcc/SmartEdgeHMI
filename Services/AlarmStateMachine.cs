@@ -11,45 +11,49 @@ public class AlarmStateMachine : IAlarmStateMachine
 {
     private readonly Dictionary<string, ErrorCode> _activeAlarms = [];
     private readonly Dictionary<string, int> _recoveryCounters = [];
+    private readonly object _syncRoot = new();
 
     public AlarmRecordEntity? Evaluate(TelemetryPayload payload)
     {
         if (payload.QualityCode == DataQuality.Bad)
             return null;
 
-        bool hasError = payload.ErrorCode != ErrorCode.NoError;
-        bool isCurrentlyAlarmed = _activeAlarms.ContainsKey(payload.DeviceId);
-
-        if (hasError && !isCurrentlyAlarmed)
+        lock (_syncRoot)
         {
-            // ↑ 上升沿: Normal → Alarm
-            _activeAlarms[payload.DeviceId] = payload.ErrorCode;
-            _recoveryCounters.Remove(payload.DeviceId);
-            return CreateRecord(payload);
-        }
-        else if (!hasError && isCurrentlyAlarmed)
-        {
-            // ↓ 潜在下降沿: 进入恢复迟滞计数
-            if (!_recoveryCounters.TryGetValue(payload.DeviceId, out int count))
-                count = 0;
-            count++;
-            _recoveryCounters[payload.DeviceId] = count;
+            bool hasError = payload.ErrorCode != ErrorCode.NoError;
+            bool isCurrentlyAlarmed = _activeAlarms.ContainsKey(payload.DeviceId);
 
-            if (count >= AppConstants.AlarmRecoveryDebounceCount)
+            if (hasError && !isCurrentlyAlarmed)
             {
-                _activeAlarms.Remove(payload.DeviceId);
+                // ↑ 上升沿: Normal → Alarm
+                _activeAlarms[payload.DeviceId] = payload.ErrorCode;
                 _recoveryCounters.Remove(payload.DeviceId);
-                Log.Information("报警恢复: {DeviceId}, 连续 {Count} 帧正常", payload.DeviceId, count);
+                return CreateRecord(payload);
             }
-        }
-        else if (hasError && isCurrentlyAlarmed)
-        {
-            // → 报警持续: 重置恢复计数器，防止瞬时正常被误判为恢复
-            _recoveryCounters.Remove(payload.DeviceId);
-        }
-        // else: !hasError && !isCurrentlyAlarmed → 稳态正常，无需处理
+            else if (!hasError && isCurrentlyAlarmed)
+            {
+                // ↓ 潜在下降沿: 进入恢复迟滞计数
+                if (!_recoveryCounters.TryGetValue(payload.DeviceId, out int count))
+                    count = 0;
+                count++;
+                _recoveryCounters[payload.DeviceId] = count;
 
-        return null;
+                if (count >= AppConstants.AlarmRecoveryDebounceCount)
+                {
+                    _activeAlarms.Remove(payload.DeviceId);
+                    _recoveryCounters.Remove(payload.DeviceId);
+                    Log.Information("报警恢复: {DeviceId}, 连续 {Count} 帧正常", payload.DeviceId, count);
+                }
+            }
+            else if (hasError && isCurrentlyAlarmed)
+            {
+                // → 报警持续: 重置恢复计数器，防止瞬时正常被误判为恢复
+                _recoveryCounters.Remove(payload.DeviceId);
+            }
+            // else: !hasError && !isCurrentlyAlarmed → 稳态正常，无需处理
+
+            return null;
+        }
     }
 
     private static AlarmRecordEntity CreateRecord(TelemetryPayload payload) => new()

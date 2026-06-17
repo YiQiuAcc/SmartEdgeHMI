@@ -234,10 +234,8 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
                     if (dataLength >= 6)
                     {
                         ushort rawStatus = BinaryPrimitives.ReadUInt16BigEndian(dataSpan.Slice(4, 2));
-                        statusCode = (DeviceStatus)rawStatus;
-                        errorCode = statusCode == DeviceStatus.Fault
-                            ? ErrorCode.ThresholdExceeded
-                            : ErrorCode.NoError;
+                        statusCode = (DeviceStatus)(rawStatus >> 8);
+                        errorCode = (ErrorCode)(rawStatus & 0xFF);
                     }
 
                     WeakReferenceMessenger.Default.Send(new SensorReadingMessage(
