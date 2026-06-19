@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Constants;
@@ -20,12 +21,13 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
 
     private const int PollingIntervalMs = 1000;
     private const ushort PollStartAddress = 0;
-    private const ushort PollRegisterCount = 3;
+    private const ushort PollRegisterCount = 4;
 
     public ModbusProtocolService(ISerialPortService serialPortService, ConnectionViewModel connectionVm)
     {
         _serialPortService = serialPortService;
         _connectionVm = connectionVm;
+        _connectionVm.PropertyChanged += OnConnectionViewModelPropertyChanged;
         WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
@@ -95,6 +97,7 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
 
     public void Receive(RawDataReceivedMessage message)
     {
+        if (_connectionVm.SelectedProtocol != CommunicationProtocol.Modbus) return;
         if (message.Data.Length == 0) return;
 
         var buffer = _buffers.GetOrAdd(message.PortName, _ => new SlidingBuffer());
@@ -121,6 +124,19 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
             case ConnectionState.Error:
                 StopPolling(message.PortName);
                 break;
+        }
+    }
+
+    private void OnConnectionViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ConnectionViewModel.SelectedProtocol)) return;
+        if (_connectionVm.SelectedProtocol != CommunicationProtocol.Modbus)
+        {
+            foreach (string portName in _pollingTokens.Keys.ToList())
+            {
+                StopPolling(portName);
+            }
+            Log.Information("[Modbus] 协议已切换至非Modbus模式，已停止所有轮询任务");
         }
     }
 
@@ -234,8 +250,13 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
                     if (dataLength >= 6)
                     {
                         ushort rawStatus = BinaryPrimitives.ReadUInt16BigEndian(dataSpan.Slice(4, 2));
-                        statusCode = (DeviceStatus)(rawStatus >> 8);
-                        errorCode = (ErrorCode)(rawStatus & 0xFF);
+                        statusCode = (DeviceStatus)rawStatus;
+                    }
+
+                    if (dataLength >= 8)
+                    {
+                        ushort rawError = BinaryPrimitives.ReadUInt16BigEndian(dataSpan.Slice(6, 2));
+                        errorCode = (ErrorCode)rawError;
                     }
 
                     WeakReferenceMessenger.Default.Send(new SensorReadingMessage(
@@ -274,6 +295,8 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
 
     public void Dispose()
     {
+        _connectionVm.PropertyChanged -= OnConnectionViewModelPropertyChanged;
+
         foreach (var cts in _pollingTokens.Values)
         {
             cts.Cancel();

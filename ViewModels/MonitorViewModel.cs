@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Constants;
 using SmartEdgeHMI.Models.DTOs;
+using SmartEdgeHMI.Models.Entities;
 using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.Services;
@@ -18,6 +19,7 @@ public partial class MonitorViewModel : ViewModelBase,
     private readonly ISettingsService _settingsService;
     private readonly IDeviceCommunicationCoordinator _coordinator;
     private readonly IAlarmStateMachine _alarmStateMachine;
+    private readonly ISqliteRepository _sqliteRepo;
 
     private CancellationTokenSource? _saveThresholdCts;
     private bool _isInitializing;
@@ -31,11 +33,13 @@ public partial class MonitorViewModel : ViewModelBase,
     public MonitorViewModel(
         ISettingsService settingsService,
         IDeviceCommunicationCoordinator coordinator,
-        IAlarmStateMachine alarmStateMachine)
+        IAlarmStateMachine alarmStateMachine,
+        ISqliteRepository sqliteRepo)
     {
         _settingsService = settingsService;
         _coordinator = coordinator;
         _alarmStateMachine = alarmStateMachine;
+        _sqliteRepo = sqliteRepo;
 
         WeakReferenceMessenger.Default.RegisterAll(this);
         LoadSavedThreshold();
@@ -63,6 +67,17 @@ public partial class MonitorViewModel : ViewModelBase,
         var payload = message.Payload;
         DispatchToUI(() => CurrentTemperature = payload.Temperature);
 
+        _ = _sqliteRepo.SaveTelemetryAsync(new SensorReadingEntity
+        {
+            DeviceId = payload.DeviceId,
+            Timestamp = DateTime.Now,
+            Temperature = payload.Temperature,
+            Humidity = payload.Humidity,
+            StatusCode = payload.StatusCode,
+            ErrorCode = payload.ErrorCode,
+            QualityCode = payload.QualityCode
+        });
+
         var alarmRecord = _alarmStateMachine.Evaluate(payload);
         if (alarmRecord is not null)
         {
@@ -76,6 +91,17 @@ public partial class MonitorViewModel : ViewModelBase,
     {
         float temperature = message.Temperature;
         DispatchToUI(() => CurrentTemperature = temperature);
+
+        _ = _sqliteRepo.SaveTelemetryAsync(new SensorReadingEntity
+        {
+            DeviceId = AppConstants.DefaultDeviceName,
+            Timestamp = DateTime.Now,
+            Temperature = message.Temperature,
+            Humidity = message.Humidity,
+            StatusCode = message.StatusCode,
+            ErrorCode = message.ErrorCode,
+            QualityCode = DataQuality.Good
+        });
 
         var payload = new TelemetryPayload
         {

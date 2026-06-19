@@ -46,8 +46,8 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator
                 case CommunicationProtocol.Modbus:
                 {
                     await _modbusService.WriteSingleRegisterAsync(portName,
-                        AppConstants.DefaultModbusSlaveAddress, 0x0002, (ushort)value);
-                    Log.Information("[Modbus] 阈值配置已下发至 {Port}: {Value}°C", portName, (ushort)value);
+                        AppConstants.DefaultModbusSlaveAddress, 0x0002, (ushort)Math.Round(value * 10));
+                    Log.Information("[Modbus] 阈值配置已下发至 {Port}: {Value}°C (寄存器值: {Raw})", portName, value, (ushort)Math.Round(value * 10));
                     break;
                 }
             }

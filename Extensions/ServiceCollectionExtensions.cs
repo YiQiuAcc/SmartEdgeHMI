@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MonitorViewModel>();
         services.AddSingleton<AlarmHistoryViewModel>();
         services.AddSingleton<LogConsoleViewModel>();
+        services.AddSingleton<TrendViewModel>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
         return services;

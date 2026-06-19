@@ -161,7 +161,9 @@ function handleModbusRequest(port, frame) {
         val = Math.round(state.temperature * 10); // 寄存器0: 温度
       else if (addr === 1)
         val = Math.round(state.humidity * 10); // 寄存器1: 湿度
-      else if (addr === 2) val = state.status; // 寄存器2: 状态
+      else if (addr === 2) val = state.status; // 寄存器2: 设备状态 (DeviceStatus)
+      else if (addr === 3)
+        val = state.status === 4 ? 302 : 0; // 寄存器3: 错误码 (ErrorCode)
 
       response.writeUInt16BE(val, offset);
       offset += 2;
@@ -186,9 +188,9 @@ function handleModbusRequest(port, frame) {
       `[Modbus RX] 收到写寄存器指令 (${addrName}, Val: ${valueOrCount})`,
     );
 
-    // 写入寄存器 2: 更新报警阈值
+    // 写入寄存器 2: 更新报警阈值 (定点数×10传输)
     if (startAddr === 2) {
-      state.threshold = valueOrCount;
+      state.threshold = valueOrCount / 10.0;
       console.log(`[EXEC] 更新阈值 -> ${state.threshold}°C`);
     }
     // 写入寄存器 1: 复位设备

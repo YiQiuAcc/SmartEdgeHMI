@@ -3,6 +3,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using ScottPlot;
+using ScottPlot.TickGenerators;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.ViewModels;
 
@@ -10,12 +11,14 @@ namespace SmartEdgeHMI.Views;
 
 public partial class MainWindow : Window,
     IRecipient<DeviceTelemetryMessage>,
-    IRecipient<SensorReadingMessage>
+    IRecipient<SensorReadingMessage>,
+    IRecipient<TrendDataLoadedMessage>
 {
     private readonly Dictionary<string, ScottPlot.Plottables.DataStreamer> _streamers = [];
     private static readonly Color[] _streamerColors = [Colors.Cyan, Colors.Gold];
 
     private readonly DispatcherTimer _renderTimer;
+    private bool _isHistoryMode;
 
     public MainWindow(IServiceProvider serviceProvider)
     {
@@ -57,8 +60,44 @@ public partial class MainWindow : Window,
     public void Receive(SensorReadingMessage message)
         => AddTemperature(message.PortName, message.Temperature);
 
+    public void Receive(TrendDataLoadedMessage message)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null) return;
+
+        dispatcher.BeginInvoke(() =>
+        {
+            if (message.Data.Count == 0)
+            {
+                _isHistoryMode = false;
+                DataPlot.Plot.Clear();
+                _streamers.Clear();
+                DataPlot.Plot.Axes.Bottom.TickGenerator = new NumericAutomatic();
+                DataPlot.Plot.Axes.AutoScale();
+                DataPlot.Refresh();
+                return;
+            }
+
+            _isHistoryMode = true;
+            DataPlot.Plot.Clear();
+            _streamers.Clear();
+
+            var xs = message.Data.Select(d => (double)d.Timestamp.Ticks).ToArray();
+            var ys = message.Data.Select(d => d.Temperature).ToArray();
+            var scatter = DataPlot.Plot.Add.Scatter(xs, ys);
+            scatter.LineWidth = 2;
+            scatter.Color = Colors.Cyan;
+
+            DataPlot.Plot.Axes.Bottom.TickGenerator = new DateTimeAutomatic();
+            DataPlot.Plot.Axes.AutoScale();
+            DataPlot.Refresh();
+        });
+    }
+
     private void AddTemperature(string portName, double temperature)
     {
+        if (_isHistoryMode) return;
+
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher is null) return;
 

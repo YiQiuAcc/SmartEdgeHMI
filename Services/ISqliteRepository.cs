@@ -9,4 +9,8 @@ public interface ISqliteRepository : IAsyncDisposable
     Task<List<AlarmRecordEntity>> GetAlarmHistoryAsync();
 
     Task SaveAlarmRecordAsync(AlarmRecordEntity alarmRecord);
+
+    Task SaveTelemetryAsync(SensorReadingEntity entity);
+
+    Task<List<SensorReadingEntity>> GetTelemetryHistoryAsync(DateTime from, DateTime to, int targetPoints);
 }
