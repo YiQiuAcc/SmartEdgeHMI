@@ -14,8 +14,11 @@ public partial class MainWindow : Window,
     IRecipient<SensorReadingMessage>,
     IRecipient<TrendDataLoadedMessage>
 {
-    private readonly Dictionary<string, ScottPlot.Plottables.DataStreamer> _streamers = [];
-    private static readonly Color[] _streamerColors = [Colors.Cyan, Colors.Gold];
+    private readonly Dictionary<string, ScottPlot.Plottables.DataLogger> _loggers = [];
+    private static readonly Color[] _loggerColors = [Colors.Cyan, Colors.Gold];
+
+    private const int DataLoggerCapacity = 2000;      // 期望保留的核心基准点数
+    private const int DataLoggerMaxThreshold = 2500;  // 允许增长到的最大上限
 
     private readonly DispatcherTimer _renderTimer;
     private bool _isHistoryMode;
@@ -41,15 +44,12 @@ public partial class MainWindow : Window,
         DataPlot.Plot.FigureBackground.Color = Color.FromHex("#1E1E1E");
         DataPlot.Plot.DataBackground.Color = Color.FromHex("#252526");
         DataPlot.Plot.Axes.Color(Colors.LightGray);
-        // 设置坐标轴刻度数字(TickLabels)的高清字体大小
         DataPlot.Plot.Axes.Bottom.TickLabelStyle.FontSize = 14;
         DataPlot.Plot.Axes.Left.TickLabelStyle.FontSize = 14;
-        // 设置坐标轴标题(Label)的高清字体大小
         DataPlot.Plot.Axes.Bottom.Label.FontSize = 16;
         DataPlot.Plot.Axes.Left.Label.FontSize = 16;
-        // 设置图表顶部主标题的高清字体大小
         DataPlot.Plot.Axes.Title.Label.FontSize = 20;
-        // 开启 ScottPlot 的高性能抗锯齿渲染模式
+        DataPlot.Plot.Axes.Bottom.TickGenerator = new DateTimeAutomatic();
         DataPlot.Plot.Axes.AutoScale();
         DataPlot.Refresh();
     }
@@ -71,8 +71,8 @@ public partial class MainWindow : Window,
             {
                 _isHistoryMode = false;
                 DataPlot.Plot.Clear();
-                _streamers.Clear();
-                DataPlot.Plot.Axes.Bottom.TickGenerator = new NumericAutomatic();
+                _loggers.Clear();
+                DataPlot.Plot.Axes.Bottom.TickGenerator = new DateTimeAutomatic();
                 DataPlot.Plot.Axes.AutoScale();
                 DataPlot.Refresh();
                 return;
@@ -80,9 +80,9 @@ public partial class MainWindow : Window,
 
             _isHistoryMode = true;
             DataPlot.Plot.Clear();
-            _streamers.Clear();
+            _loggers.Clear();
 
-            var xs = message.Data.Select(d => (double)d.Timestamp.Ticks).ToArray();
+            var xs = message.Data.Select(d => d.Timestamp.ToOADate()).ToArray();
             var ys = message.Data.Select(d => d.Temperature).ToArray();
             var scatter = DataPlot.Plot.Add.Scatter(xs, ys);
             scatter.LineWidth = 2;
@@ -103,16 +103,31 @@ public partial class MainWindow : Window,
 
         dispatcher.BeginInvoke(() =>
         {
-            if (!_streamers.TryGetValue(portName, out var streamer))
+            if (!_loggers.TryGetValue(portName, out var logger))
             {
-                streamer = DataPlot.Plot.Add.DataStreamer(1000);
-                streamer.LineWidth = 2;
-                streamer.Color = _streamerColors[_streamers.Count % _streamerColors.Length];
-                _streamers[portName] = streamer;
+                logger = DataPlot.Plot.Add.DataLogger();
+                logger.LineWidth = 2;
+                logger.Color = _loggerColors[_loggers.Count % _loggerColors.Length];
+                _loggers[portName] = logger;
                 DataPlot.Plot.Axes.AutoScale();
             }
 
-            streamer.Add(temperature);
+            logger.Add(DateTime.Now.ToOADate(), temperature);
+
+            // 当点数顶到 2500 的极大上限时, 触发一次批量裁剪
+            if (logger.Data.Coordinates.Count > DataLoggerMaxThreshold)
+            {
+                // 切掉最旧的 500 个点, 拿最新的 2000 个点
+                var recent = logger.Data.Coordinates
+                    .Skip(logger.Data.Coordinates.Count - DataLoggerCapacity)
+                    .ToList();
+
+                logger.Clear();
+                foreach (var pt in recent)
+                {
+                    logger.Add(pt);
+                }
+            }
         });
     }
 }

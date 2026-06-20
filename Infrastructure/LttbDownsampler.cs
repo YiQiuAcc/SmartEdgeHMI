@@ -5,8 +5,7 @@ namespace SmartEdgeHMI.Infrastructure;
 public static class LttbDownsampler
 {
     /// <summary>
-    /// Largest Triangle Three Buckets 降采样。首尾点强制保留，中间每桶
-    /// 选取与前后已选点构成最大三角形面积的数据点，保持曲线的视觉特征。
+    /// Largest Triangle Three Buckets 降采样。首尾点强制保留，中间每桶 选取与前后已选点构成最大三角形面积的数据点，保持曲线的视觉特征。
     /// </summary>
     public static List<SensorReadingEntity> Downsample(List<SensorReadingEntity> data, int targetCount)
     {

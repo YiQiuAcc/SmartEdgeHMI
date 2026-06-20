@@ -5,22 +5,27 @@ using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Infrastructure;
 using SmartEdgeHMI.Models.DTOs;
+using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Services;
 
 /// <summary>协议层：消费物理层原始字节流, 按 JSON-Lines 协议解析为强类型遥测消息</summary>
 public class JsonProtocolService : IRecipient<RawDataReceivedMessage>, IRecipient<DeviceStateChangedMessage>, IDisposable
 {
+    private readonly ConnectionViewModel _connectionVm;
     private readonly ConcurrentDictionary<string, SlidingBuffer> _lineBuffers = new();
 
-    public JsonProtocolService()
+    public JsonProtocolService(ConnectionViewModel connectionVm)
     {
+        _connectionVm = connectionVm;
         WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
     public void Receive(RawDataReceivedMessage message)
     {
+        if (_connectionVm.SelectedProtocol != CommunicationProtocol.JSON) return;
         if (message.Data.Length == 0) return;
 
         var buffer = _lineBuffers.GetOrAdd(message.PortName, _ => new SlidingBuffer());

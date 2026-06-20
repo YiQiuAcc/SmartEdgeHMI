@@ -131,10 +131,10 @@ public partial class MonitorViewModel : ViewModelBase,
     partial void OnAlarmThresholdChanged(double value)
     {
         if (_isInitializing) return;
-        DebounceSaveThreshold(value);
+        _ = DebounceSaveThreshold(value);
     }
 
-    private async void DebounceSaveThreshold(double value)
+    private async Task DebounceSaveThreshold(double value)
     {
         _saveThresholdCts?.Cancel();
         _saveThresholdCts?.Dispose();

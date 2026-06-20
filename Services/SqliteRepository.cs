@@ -1,4 +1,5 @@
 using System.Data;
+using System.IO;
 using System.Threading.Channels;
 using Dapper;
 using Microsoft.Data.Sqlite;
@@ -15,20 +16,13 @@ public sealed class SqliteRepository : ISqliteRepository
     private readonly string _connectionString;
     private readonly int _queryLimit;
 
-    // 报警批量写入
-    private readonly Channel<AlarmRecordEntity> _alarmChannel;
-    private readonly CancellationTokenSource _alarmCts;
-    private readonly Task _alarmConsumerTask;
-
     // 遥测批量写入
     private readonly Channel<SensorReadingEntity> _telemetryChannel;
     private readonly CancellationTokenSource _telemetryCts;
     private readonly Task _telemetryConsumerTask;
 
-    private const int AlarmBatchSize = 50;
-    private const int AlarmFlushIntervalMs = 1000;
-    private const int TelemetryBatchSize = 100;
-    private const int TelemetryFlushIntervalMs = 2000;
+    private const int TelemetryBatchSize = 50;
+    private const int TelemetryFlushIntervalMs = 10_000;
 
     static SqliteRepository()
     {
@@ -37,18 +31,9 @@ public sealed class SqliteRepository : ISqliteRepository
 
     public SqliteRepository(IConfiguration config)
     {
-        _connectionString = config["DatabaseSettings:DefaultConnection"] ?? "Data Source=SmartEdgeHMI.db";
+        var raw = config["DatabaseSettings:DefaultConnection"] ?? "Data Source=SmartEdgeHMI.db";
+        _connectionString = ResolveConnectionString(raw);
         _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
-
-        // 报警 Channel
-        _alarmChannel = Channel.CreateBounded<AlarmRecordEntity>(new BoundedChannelOptions(AlarmBatchSize * 10)
-        {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleWriter = false,
-            SingleReader = true
-        });
-        _alarmCts = new CancellationTokenSource();
-        _alarmConsumerTask = Task.Run(() => ConsumeAlarmsAsync(_alarmCts.Token));
 
         // 遥测 Channel
         _telemetryChannel = Channel.CreateBounded<SensorReadingEntity>(new BoundedChannelOptions(TelemetryBatchSize * 10)
@@ -61,6 +46,17 @@ public sealed class SqliteRepository : ISqliteRepository
         _telemetryConsumerTask = Task.Run(() => ConsumeTelemetryAsync(_telemetryCts.Token));
     }
 
+    private static string ResolveConnectionString(string connectionString)
+    {
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        if (!Path.IsPathRooted(builder.DataSource))
+        {
+            builder.DataSource = Path.GetFullPath(
+                Path.Combine(AppContext.BaseDirectory, builder.DataSource));
+        }
+        return builder.ConnectionString;
+    }
+
     private async Task<SqliteConnection> CreateConnectionAsync()
     {
         var connection = new SqliteConnection(_connectionString);
@@ -68,7 +64,7 @@ public sealed class SqliteRepository : ISqliteRepository
         return connection;
     }
 
-    // ======================== 报警历史 ========================
+    // 报警历史（直接写入）
 
     public async Task<List<AlarmRecordEntity>> GetAlarmHistoryAsync()
     {
@@ -93,75 +89,21 @@ public sealed class SqliteRepository : ISqliteRepository
     {
         try
         {
-            await _alarmChannel.Writer.WriteAsync(alarmRecord);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "报警记录入队失败");
-        }
-    }
-
-    private async Task ConsumeAlarmsAsync(CancellationToken ct)
-    {
-        var batch = new List<AlarmRecordEntity>(AlarmBatchSize);
-
-        while (!ct.IsCancellationRequested)
-        {
-            try
-            {
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeoutCts.CancelAfter(AlarmFlushIntervalMs);
-
-                try
-                {
-                    if (await _alarmChannel.Reader.WaitToReadAsync(timeoutCts.Token))
-                    {
-                        while (batch.Count < AlarmBatchSize && _alarmChannel.Reader.TryRead(out var item))
-                            batch.Add(item);
-                    }
-                }
-                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested) { }
-
-                if (batch.Count >= AlarmBatchSize || batch.Count > 0)
-                {
-                    await FlushAlarmBatchAsync(batch);
-                    batch.Clear();
-                }
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
-            catch (Exception ex) { Log.Error(ex, "报警批量消费循环异常"); }
-        }
-
-        while (_alarmChannel.Reader.TryRead(out var remaining))
-            batch.Add(remaining);
-
-        if (batch.Count > 0)
-            await FlushAlarmBatchAsync(batch);
-    }
-
-    private async Task FlushAlarmBatchAsync(List<AlarmRecordEntity> batch)
-    {
-        try
-        {
             await using var connection = await CreateConnectionAsync();
-            using var transaction = connection.BeginTransaction();
 
-            const string sql = """
-            INSERT INTO AlarmHistory (DeviceId, Timestamp, AlarmCode, TriggerValue, QualityCode)
-            VALUES (@DeviceId, @Timestamp, @AlarmCode, @TriggerValue, @QualityCode)
-            """;
-
-            await connection.ExecuteAsync(sql, batch, transaction: transaction);
-            transaction.Commit();
-            Log.Debug("批量写入 {Count} 条报警记录", batch.Count);
+            await connection.ExecuteAsync("""
+                INSERT INTO AlarmHistory (DeviceId, Timestamp, AlarmCode, TriggerValue, QualityCode)
+                VALUES (@DeviceId, @Timestamp, @AlarmCode, @TriggerValue, @QualityCode)
+                """, alarmRecord);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "批量保存报警记录失败, 丢失 {Count} 条", batch.Count);
+            Log.Error(ex, "保存报警记录失败");
         }
     }
 
     // 遥测历史
+
     public async Task SaveTelemetryAsync(SensorReadingEntity entity)
     {
         try
@@ -187,7 +129,7 @@ public sealed class SqliteRepository : ISqliteRepository
             """;
 
             var rawData = (await connection.QueryAsync<SensorReadingEntity>(sql,
-                new { From = from.ToString("O"), To = to.ToString("O") })).AsList();
+                new { From = from, To = to })).AsList();
 
             if (rawData.Count <= targetPoints)
                 return rawData;
@@ -204,6 +146,7 @@ public sealed class SqliteRepository : ISqliteRepository
     private async Task ConsumeTelemetryAsync(CancellationToken ct)
     {
         var batch = new List<SensorReadingEntity>(TelemetryBatchSize);
+        var lastFlush = DateTime.UtcNow;
 
         while (!ct.IsCancellationRequested)
         {
@@ -222,10 +165,14 @@ public sealed class SqliteRepository : ISqliteRepository
                 }
                 catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested) { }
 
-                if (batch.Count >= TelemetryBatchSize || batch.Count > 0)
+                bool countReached = batch.Count >= TelemetryBatchSize;
+                bool timeReached = batch.Count > 0 && (DateTime.UtcNow - lastFlush).TotalMilliseconds >= TelemetryFlushIntervalMs;
+
+                if (countReached || timeReached)
                 {
                     await FlushTelemetryBatchAsync(batch);
                     batch.Clear();
+                    lastFlush = DateTime.UtcNow;
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
@@ -253,7 +200,7 @@ public sealed class SqliteRepository : ISqliteRepository
 
             await connection.ExecuteAsync(sql, batch, transaction: transaction);
             transaction.Commit();
-            Log.Debug("批量写入 {Count} 条遥测记录", batch.Count);
+            // Log.Debug("批量写入 {Count} 条遥测记录", batch.Count);
         }
         catch (Exception ex)
         {
@@ -261,7 +208,7 @@ public sealed class SqliteRepository : ISqliteRepository
         }
     }
 
-    // ======================== 数据库初始化 ========================
+    // 数据库初始化
 
     public async Task InitializeDatabaseAsync()
     {
@@ -333,19 +280,12 @@ public sealed class SqliteRepository : ISqliteRepository
 
     public async ValueTask DisposeAsync()
     {
-        _alarmChannel.Writer.Complete();
         _telemetryChannel.Writer.Complete();
-
-        await _alarmCts.CancelAsync();
         await _telemetryCts.CancelAsync();
-
-        try { await _alarmConsumerTask.WaitAsync(TimeSpan.FromSeconds(5)); }
-        catch (Exception) { }
 
         try { await _telemetryConsumerTask.WaitAsync(TimeSpan.FromSeconds(5)); }
         catch (Exception) { }
 
-        _alarmCts.Dispose();
         _telemetryCts.Dispose();
     }
 

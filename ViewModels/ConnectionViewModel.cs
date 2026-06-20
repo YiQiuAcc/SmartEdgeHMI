@@ -35,7 +35,7 @@ public partial class ConnectionViewModel : ViewModelBase,
     public string StatusColor => IsConnected ? "Green" : "Red";
 
     public ObservableCollection<string> AvailablePorts { get; set; }
-    public ObservableCollection<string> AvailableBaudRate { get; set; } = new(AppConstants.StandardBaudRates);
+    public ObservableCollection<string> AvailableBaudRate { get; } = new(AppConstants.StandardBaudRates);
 
     [ObservableProperty]
     private CommunicationProtocol _selectedProtocol = CommunicationProtocol.JSON;
@@ -97,7 +97,7 @@ public partial class ConnectionViewModel : ViewModelBase,
     }
 
     [RelayCommand]
-    private void OpenPort()
+    private async Task OpenPortAsync()
     {
         if (string.IsNullOrEmpty(SelectedPort) || string.IsNullOrEmpty(SelectedBaudRate)) return;
 
@@ -106,7 +106,10 @@ public partial class ConnectionViewModel : ViewModelBase,
             try
             {
                 Log.Information("正在连接串口 {Port}，波特率 {BaudRate}", SelectedPort, baud);
-                _serialPortService.OpenPort(SelectedPort, baud);
+
+                // 切到后台线程执行硬件打开动作
+                await Task.Run(() => _serialPortService.OpenPort(SelectedPort, baud));
+
                 Log.Information("串口 {Port} 连接成功", SelectedPort);
             }
             catch (Exception ex)
@@ -127,12 +130,12 @@ public partial class ConnectionViewModel : ViewModelBase,
     }
 
     [RelayCommand]
-    private void ToggleConnect()
+    private async Task ToggleConnect()
     {
         if (string.IsNullOrEmpty(SelectedPort)) return;
         if (_connectedPorts.Contains(SelectedPort))
             ClosePort();
         else
-            OpenPort();
+            await OpenPortAsync();
     }
 }

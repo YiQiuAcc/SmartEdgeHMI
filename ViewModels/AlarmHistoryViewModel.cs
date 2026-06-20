@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Windows.Data;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
@@ -14,13 +16,16 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
 {
     private readonly ISqliteRepository _sqliteRepo;
 
-    public BulkObservableCollection<AlarmRecordEntity> AlarmRecords { get; set; } = [];
+    public BulkObservableCollection<AlarmRecordEntity> AlarmRecords { get; } = [];
 
     public AlarmHistoryViewModel(ISqliteRepository sqliteRepo)
     {
         _sqliteRepo = sqliteRepo;
-
         EnableCollectionSynchronization(AlarmRecords);
+
+        var view = CollectionViewSource.GetDefaultView(AlarmRecords);
+        view.SortDescriptions.Add(new SortDescription(nameof(AlarmRecordEntity.Timestamp), ListSortDirection.Descending));
+
         WeakReferenceMessenger.Default.RegisterAll(this);
         _ = LoadAlarmHistorySafeAsync();
     }
@@ -29,13 +34,25 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
     {
         DispatchToUI(() =>
         {
-            AlarmRecords.Insert(0, message.Record);
+            AlarmRecords.Add(message.Record);
             if (AlarmRecords.Count > AppConstants.MaxLogEntries)
-                AlarmRecords.RemoveAt(AlarmRecords.Count - 1);
+                AlarmRecords.RemoveAt(0);
         });
 
-        _sqliteRepo.SaveAlarmRecordAsync(message.Record)
-            .ContinueWith(t => Log.Error(t.Exception, "报警数据本地落盘失败"), TaskContinuationOptions.OnlyOnFaulted);
+        // 异步落盘与异常捕获
+        _ = SaveAlarmToDbAsync(message.Record);
+    }
+
+    private async Task SaveAlarmToDbAsync(AlarmRecordEntity record)
+    {
+        try
+        {
+            await _sqliteRepo.SaveAlarmRecordAsync(record);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "报警数据本地落盘失败");
+        }
     }
 
     private async Task LoadAlarmHistorySafeAsync()

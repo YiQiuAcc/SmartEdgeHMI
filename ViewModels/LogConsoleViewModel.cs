@@ -10,7 +10,7 @@ namespace SmartEdgeHMI.ViewModels;
 public partial class LogConsoleViewModel : ViewModelBase,
     IRecipient<LogUpdateMessage>
 {
-    public BulkObservableCollection<SystemLogModel> SystemLogs { get; set; } = [];
+    public BulkObservableCollection<SystemLogModel> SystemLogs { get; } = [];
 
     public LogConsoleViewModel()
     {
