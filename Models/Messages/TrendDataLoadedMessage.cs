@@ -2,14 +2,8 @@ using SmartEdgeHMI.Models.Entities;
 
 namespace SmartEdgeHMI.Models.Messages;
 
-public class TrendDataLoadedMessage
+public class TrendDataLoadedMessage(string portName, List<SensorReadingEntity> data)
 {
-    public string PortName { get; }
-    public List<SensorReadingEntity> Data { get; }
-
-    public TrendDataLoadedMessage(string portName, List<SensorReadingEntity> data)
-    {
-        PortName = portName;
-        Data = data;
-    }
+    public string PortName { get; } = portName;
+    public List<SensorReadingEntity> Data { get; } = data;
 }

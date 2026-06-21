@@ -2,33 +2,34 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.IO.Pipelines;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Constants;
-using SmartEdgeHMI.Infrastructure;
 using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Services;
 
-public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipient<DeviceStateChangedMessage>, IDisposable
+public class ModbusProtocolService : IProtocolParser
 {
     private readonly ISerialPortService _serialPortService;
     private readonly ConnectionViewModel _connectionVm;
-    private readonly ConcurrentDictionary<string, SlidingBuffer> _buffers = new();
+    private readonly ConcurrentDictionary<string, PortPipeState> _pipes = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _pollingTokens = new();
 
     private const int PollingIntervalMs = 1000;
     private const ushort PollStartAddress = 0;
     private const ushort PollRegisterCount = 4;
 
+    public string Key => "Modbus";
+
     public ModbusProtocolService(ISerialPortService serialPortService, ConnectionViewModel connectionVm)
     {
         _serialPortService = serialPortService;
         _connectionVm = connectionVm;
         _connectionVm.PropertyChanged += OnConnectionViewModelPropertyChanged;
-        WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
     /// <summary>计算 Modbus RTU CRC16 校验码 (半字节查表法 / 零分配)</summary>
@@ -55,8 +56,6 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
         data.CopyTo(buffer.AsSpan(2, data.Length));
 
         ushort crc = CalcCRC16(buffer.AsSpan(0, frameLength - 2));
-
-        // Modbus CRC 规定低字节在前, 高字节在后
         BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(frameLength - 2, 2), crc);
 
         return WriteAndReturnBufferAsync(portName, buffer, frameLength);
@@ -87,7 +86,6 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
     /// <summary>写单个保持寄存器</summary>
     public Task WriteSingleRegisterAsync(string portName, byte slaveAddress, ushort registerAddress, ushort value)
     {
-        // 栈上分配
         Span<byte> data = stackalloc byte[4];
         BinaryPrimitives.WriteUInt16BigEndian(data.Slice(0, 2), registerAddress);
         BinaryPrimitives.WriteUInt16BigEndian(data.Slice(2, 2), value);
@@ -95,48 +93,70 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
         return SendModbusCommandAsync(portName, slaveAddress, (byte)ModbusFunctionCode.WriteSingleRegister, data);
     }
 
-    public void Receive(RawDataReceivedMessage message)
+    // IProtocolParser 实现
+    public void OnDataReceived(string portName, ReadOnlySpan<byte> data)
     {
-        if (_connectionVm.SelectedProtocol != CommunicationProtocol.Modbus) return;
-        if (message.Data.Length == 0) return;
+        if (data.Length == 0) return;
 
-        var buffer = _buffers.GetOrAdd(message.PortName, _ => new SlidingBuffer());
-
-        // 锁定当前端口的缓冲区, 防止并发读写引发竞态条件
-        lock (buffer)
+        var state = _pipes.GetOrAdd(portName, _ =>
         {
-            buffer.Append(message.Data);
-            ProcessBuffer(buffer, message.PortName);
+            var s = new PortPipeState();
+            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(portName, s));
+            return s;
+        });
+
+        try
+        {
+            state.Pipe.Writer.WriteAsync(data.ToArray()).GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException)
+        {
+            // Writer 可能在断开连接时已被 Complete，忽略
         }
     }
 
-    public void Receive(DeviceStateChangedMessage message)
+    public void OnDeviceStateChanged(string portName, ConnectionState state)
     {
-        if (_connectionVm.SelectedProtocol != CommunicationProtocol.Modbus)
-            return;
-
-        switch (message.State)
+        switch (state)
         {
             case ConnectionState.Connected:
-                StartPolling(message.PortName);
+                // 仅当 Modbus 为当前协议时才启动轮询，防止串扰 JSON 通信
+                if (_connectionVm.SelectedProtocol == CommunicationProtocol.Modbus)
+                    StartPolling(portName);
                 break;
             case ConnectionState.Disconnected:
             case ConnectionState.Error:
-                StopPolling(message.PortName);
+                StopPolling(portName);
+                CleanupPipe(portName);
                 break;
         }
     }
 
+    // 轮询生命周期
     private void OnConnectionViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(ConnectionViewModel.SelectedProtocol)) return;
-        if (_connectionVm.SelectedProtocol != CommunicationProtocol.Modbus)
+
+        if (_connectionVm.SelectedProtocol == CommunicationProtocol.Modbus)
+        {
+            // 切回 Modbus：为所有已连接端口启动轮询
+            foreach (string portName in _connectionVm.ConnectedPorts)
+            {
+                StartPolling(portName);
+            }
+            Log.Information("[Modbus] 协议已切换至Modbus模式，已启动所有已连接端口的轮询");
+        }
+        else
         {
             foreach (string portName in _pollingTokens.Keys.ToList())
             {
                 StopPolling(portName);
             }
-            Log.Information("[Modbus] 协议已切换至非Modbus模式，已停止所有轮询任务");
+            foreach (string portName in _pipes.Keys.ToList())
+            {
+                CleanupPipe(portName);
+            }
+            Log.Information("[Modbus] 协议已切换至非Modbus模式，已停止所有轮询并清理管道");
         }
     }
 
@@ -185,111 +205,165 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
         }
     }
 
-    private static void ProcessBuffer(SlidingBuffer buffer, string portName)
+    // Pipelines 后台处理循环
+    private async Task ProcessPipeLoopAsync(string portName, PortPipeState ps)
     {
-        // Modbus RTU 极短的合法报文是 5 个字节
-        while (buffer.Length >= 5)
+        var pipe = ps.Pipe;
+        var ct = ps.Cts.Token;
+
+        try
         {
-            ReadOnlySpan<byte> currentSpan = buffer.UnreadSpan;
-
-            // 第一字节：从站地址 (假设只处理地址为 1 的设备)
-            if (currentSpan[0] != 0x01)
+            while (!ct.IsCancellationRequested)
             {
-                buffer.Consume(1); // 丢弃脏字节, 窗口滑动
-                continue;
+                ReadResult result = await pipe.Reader.ReadAsync(ct);
+                if (result.IsCanceled) break;
+
+                SequencePosition consumed = ParseBuffer(result.Buffer, portName);
+                pipe.Reader.AdvanceTo(consumed, result.Buffer.End);
+
+                if (result.IsCompleted) break;
             }
-
-            byte functionCode = currentSpan[1];
-            int expectedLength = GetExpectedFrameLength(currentSpan, functionCode);
-
-            // -1: 无法解析的功能码
-            if (expectedLength == -1)
-            {
-                buffer.Consume(1);
-                continue;
-            }
-
-            // 0: 变长报文, 长度字节尚未收到, 继续等待
-            if (expectedLength == 0) break;
-
-            // 预测出长度, 但当前积累的字节不够, 退出等待完整包 (解决断包)
-            if (buffer.Length < expectedLength) break;
-
-            // 零分配：直接通过 Slice 从底层数组截取这一帧的视图, 完全没有创建新 byte[]
-            ReadOnlySpan<byte> frame = currentSpan[..expectedLength];
-
-            // CRC 校验
-            ushort calculatedCrc = CalcCRC16(frame[..(expectedLength - 2)]);
-            // 使用 BinaryPrimitives 安全读取小端模式的 CRC16
-            ushort deviceCrc = BinaryPrimitives.ReadUInt16LittleEndian(frame.Slice(expectedLength - 2, 2));
-
-            if (calculatedCrc == deviceCrc)
-            {
-                // 解析业务逻辑
-                if (frame[1] == (byte)ModbusFunctionCode.ReadHoldingRegisters)
-                {
-                    int dataLength = frame[2];
-                    if (3 + dataLength > frame.Length - 2)
-                    {
-                        Log.Warning("收到异常数据长度, 放弃解析该业务帧");
-                        buffer.Consume(expectedLength);
-                        continue;
-                    }
-
-                    ReadOnlySpan<byte> dataSpan = frame.Slice(3, dataLength);
-
-                    short rawTemp = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(0, 2));
-                    short rawHum = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(2, 2));
-
-                    float actualTemperature = rawTemp / 10f;
-                    float actualHumidity = rawHum / 10f;
-
-                    var statusCode = DeviceStatus.Online;
-                    var errorCode = ErrorCode.NoError;
-
-                    if (dataLength >= 6)
-                    {
-                        ushort rawStatus = BinaryPrimitives.ReadUInt16BigEndian(dataSpan.Slice(4, 2));
-                        statusCode = (DeviceStatus)rawStatus;
-                    }
-
-                    if (dataLength >= 8)
-                    {
-                        ushort rawError = BinaryPrimitives.ReadUInt16BigEndian(dataSpan.Slice(6, 2));
-                        errorCode = (ErrorCode)rawError;
-                    }
-
-                    WeakReferenceMessenger.Default.Send(new SensorReadingMessage(
-                        portName, actualTemperature, actualHumidity, statusCode, errorCode));
-                }
-
-                // 处理成功, 消费掉这一整帧数据 (解决粘包)
-                buffer.Consume(expectedLength);
-            }
-            else
-            {
-                Log.Warning("CRC校验失败, 丢弃脏字节");
-                buffer.Consume(1);
-            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[Modbus] {Port} 管道处理循环异常退出", portName);
+        }
+        finally
+        {
+            await pipe.Reader.CompleteAsync();
+            _pipes.TryRemove(portName, out _);
         }
     }
 
-    private static int GetExpectedFrameLength(ReadOnlySpan<byte> span, byte functionCode)
+    /// <summary>从 ReadOnlySequence 中逐个扫描并消费完整的 Modbus 帧</summary>
+    private static SequencePosition ParseBuffer(ReadOnlySequence<byte> buffer, string portName)
+    {
+        var reader = new SequenceReader<byte>(buffer);
+
+        while (reader.Remaining >= 5)
+        {
+            ReadOnlySpan<byte> span = reader.UnreadSpan;
+
+            // 第一字节：从站地址 (假设只处理地址为 1 的设备)
+            if (span[0] != 0x01)
+            {
+                reader.Advance(1);
+                continue;
+            }
+
+            // 至少需要 3 字节连续头部才能确定帧长度 (addr + func + byteCount)
+            if (span.Length < 3) break;
+
+            byte functionCode = span[1];
+            int expectedLength = GetExpectedFrameLength(span[2], functionCode);
+
+            if (expectedLength == -1) { reader.Advance(1); continue; }
+            if (reader.Remaining < expectedLength) break;
+
+            // 零分配：优先从连续段截取帧进行 CRC 校验
+            ReadOnlySpan<byte> frame;
+            byte[]? rented = null;
+
+            try
+            {
+                if (reader.UnreadSpan.Length >= expectedLength)
+                {
+                    frame = reader.UnreadSpan[..expectedLength];
+                }
+                else
+                {
+                    var frameSeq = reader.Sequence.Slice(reader.Position, expectedLength);
+                    rented = ArrayPool<byte>.Shared.Rent(expectedLength);
+                    frameSeq.CopyTo(rented);
+                    frame = rented.AsSpan(0, expectedLength);
+                }
+
+                ushort calculatedCrc = CalcCRC16(frame[..^2]);
+                ushort deviceCrc = BinaryPrimitives.ReadUInt16LittleEndian(frame[^2..]);
+
+                if (calculatedCrc == deviceCrc)
+                {
+                    ProcessValidFrame(frame, portName);
+                    reader.Advance(expectedLength);
+                }
+                else
+                {
+                    Log.Warning("[Modbus] {Port} CRC校验失败, 丢弃脏字节", portName);
+                    reader.Advance(1);
+                }
+            }
+            finally
+            {
+                if (rented != null) ArrayPool<byte>.Shared.Return(rented);
+            }
+        }
+
+        return reader.Position;
+    }
+
+    private static int GetExpectedFrameLength(byte dataByte, byte functionCode)
     {
         if (functionCode > 0x80) return 5;
 
-        switch (functionCode)
+        return functionCode switch
         {
-            case (byte)ModbusFunctionCode.ReadHoldingRegisters:
-            case (byte)ModbusFunctionCode.ReadInputRegisters:
-                if (span.Length < 3) return 0;
-                int byteCount = span[2];
-                return 1 + 1 + 1 + byteCount + 2;
-            case (byte)ModbusFunctionCode.WriteSingleRegister:
-            case (byte)ModbusFunctionCode.WriteMultipleRegisters:
-                return 8;
-            default:
-                return -1;
+            (byte)ModbusFunctionCode.ReadHoldingRegisters or
+            (byte)ModbusFunctionCode.ReadInputRegisters => 1 + 1 + 1 + dataByte + 2,
+
+            (byte)ModbusFunctionCode.WriteSingleRegister or
+            (byte)ModbusFunctionCode.WriteMultipleRegisters => 8,
+
+            _ => -1
+        };
+    }
+
+    private static void ProcessValidFrame(ReadOnlySpan<byte> frame, string portName)
+    {
+        if (frame[1] != (byte)ModbusFunctionCode.ReadHoldingRegisters) return;
+
+        int dataLength = frame[2];
+        if (3 + dataLength > frame.Length - 2)
+        {
+            Log.Warning("[Modbus] {Port} 收到异常数据长度, 放弃解析", portName);
+            return;
+        }
+
+        ReadOnlySpan<byte> dataSpan = frame.Slice(3, dataLength);
+
+        short rawTemp = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(0, 2));
+        short rawHum = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(2, 2));
+
+        float actualTemperature = rawTemp / 10f;
+        float actualHumidity = rawHum / 10f;
+
+        var statusCode = DeviceStatus.Online;
+        var errorCode = ErrorCode.NoError;
+
+        if (dataLength >= 6)
+        {
+            ushort rawStatus = BinaryPrimitives.ReadUInt16BigEndian(dataSpan.Slice(4, 2));
+            statusCode = (DeviceStatus)rawStatus;
+        }
+
+        if (dataLength >= 8)
+        {
+            ushort rawError = BinaryPrimitives.ReadUInt16BigEndian(dataSpan.Slice(6, 2));
+            errorCode = (ErrorCode)rawError;
+        }
+
+        WeakReferenceMessenger.Default.Send(new SensorReadingMessage(
+            portName, actualTemperature, actualHumidity, statusCode, errorCode));
+    }
+
+    // 资源清理
+    private void CleanupPipe(string portName)
+    {
+        if (_pipes.TryRemove(portName, out var ps))
+        {
+            ps.Pipe.Writer.Complete();
+            ps.Cts.Cancel();
+            ps.Dispose();
         }
     }
 
@@ -304,11 +378,36 @@ public class ModbusProtocolService : IRecipient<RawDataReceivedMessage>, IRecipi
         }
         _pollingTokens.Clear();
 
-        foreach (var buffer in _buffers.Values)
+        foreach (string portName in _pipes.Keys.ToList())
         {
-            buffer.Dispose();
+            CleanupPipe(portName);
         }
-        _buffers.Clear();
+
         GC.SuppressFinalize(this);
+    }
+
+    private sealed class PortPipeState : IDisposable
+    {
+        public Pipe Pipe { get; }
+        public CancellationTokenSource Cts { get; }
+        public Task ProcessingTask { get; set; } = Task.CompletedTask;
+
+        public PortPipeState()
+        {
+            Pipe = new Pipe(new PipeOptions(
+                pool: MemoryPool<byte>.Shared,
+                pauseWriterThreshold: 0,
+                resumeWriterThreshold: 0,
+                minimumSegmentSize: 4096,
+                useSynchronizationContext: false
+            ));
+            Cts = new CancellationTokenSource();
+        }
+
+        public void Dispose()
+        {
+            Cts.Cancel();
+            Cts.Dispose();
+        }
     }
 }

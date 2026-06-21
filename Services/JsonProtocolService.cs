@@ -1,104 +1,175 @@
+using System.Buffers;
 using System.Collections.Concurrent;
+using System.IO.Pipelines;
 using System.Text;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
-using SmartEdgeHMI.Infrastructure;
 using SmartEdgeHMI.Models.DTOs;
-using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Services;
 
-/// <summary>协议层：消费物理层原始字节流, 按 JSON-Lines 协议解析为强类型遥测消息</summary>
-public class JsonProtocolService : IRecipient<RawDataReceivedMessage>, IRecipient<DeviceStateChangedMessage>, IDisposable
+public class JsonProtocolService : IProtocolParser
 {
-    private readonly ConnectionViewModel _connectionVm;
-    private readonly ConcurrentDictionary<string, SlidingBuffer> _lineBuffers = new();
+    private readonly ConcurrentDictionary<string, PortPipeState> _pipes = new();
 
-    public JsonProtocolService(ConnectionViewModel connectionVm)
+    public string Key => "JSON";
+
+    public void OnDataReceived(string portName, ReadOnlySpan<byte> data)
     {
-        _connectionVm = connectionVm;
-        WeakReferenceMessenger.Default.RegisterAll(this);
-    }
+        if (data.Length == 0) return;
 
-    public void Receive(RawDataReceivedMessage message)
-    {
-        if (_connectionVm.SelectedProtocol != CommunicationProtocol.JSON) return;
-        if (message.Data.Length == 0) return;
-
-        var buffer = _lineBuffers.GetOrAdd(message.PortName, _ => new SlidingBuffer());
-
-        // 保证线程安全, 防止多个接收事件交错污染缓冲区
-        lock (buffer)
+        var state = _pipes.GetOrAdd(portName, _ =>
         {
-            buffer.Append(message.Data);
-            ProcessBuffer(message.PortName, buffer);
-        }
-    }
+            var s = new PortPipeState();
+            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(portName, s));
+            return s;
+        });
 
-    private static void ProcessBuffer(string portName, SlidingBuffer buffer)
-    {
-        while (buffer.Length > 0)
-        {
-            ReadOnlySpan<byte> unreadSpan = buffer.UnreadSpan;
-
-            // 查找下一个换行符 \n (0x0A)
-            int newlineIdx = unreadSpan.IndexOf((byte)'\n');
-            if (newlineIdx < 0) break; // 没有找到换行符, 说明是半行数据, 等下一波断包拼凑
-
-            // 提取这一整行的 Span
-            ReadOnlySpan<byte> lineSpan = unreadSpan[..newlineIdx];
-
-            // 兼容 CRLF (\r\n) 和 LF (\n) 格式：如果末尾是 \r (0x0D), 切掉它
-            if (lineSpan.Length > 0 && lineSpan[^1] == (byte)'\r') lineSpan = lineSpan[..^1];
-
-            // 过滤空行
-            if (lineSpan.Length > 0) ProcessLine(portName, lineSpan);
-
-            // 消费掉当前行以及末尾的 \n
-            buffer.Consume(newlineIdx + 1);
-        }
-    }
-
-    private static void ProcessLine(string portName, ReadOnlySpan<byte> lineSpan)
-    {
         try
         {
-            // 解析 UTF-8 字节流, 利用 Utf8JsonReader 直接穿透 Span 读取
-            var payload = JsonSerializer.Deserialize<TelemetryPayload>(lineSpan);
-
-            if (payload != null)
-            {
-                WeakReferenceMessenger.Default.Send(new DeviceTelemetryMessage(portName, payload));
-            }
+            state.Pipe.Writer.WriteAsync(data.ToArray()).GetAwaiter().GetResult();
         }
-        catch (JsonException ex)
+        catch (InvalidOperationException)
         {
-            string badJson = Encoding.UTF8.GetString(lineSpan);
-            Log.Warning(ex, "串口 {PortName} 收到无效的 JSON 数据: {RawData}", portName, badJson);
+            // Writer 可能在断开连接时已被 Complete，忽略
         }
     }
 
-    public void Receive(DeviceStateChangedMessage message)
+    public void OnDeviceStateChanged(string portName, ConnectionState state)
     {
-        if (message.State == ConnectionState.Disconnected || message.State == ConnectionState.Error)
+        if (state == ConnectionState.Disconnected || state == ConnectionState.Error)
         {
-            if (_lineBuffers.TryRemove(message.PortName, out var buffer))
+            if (_pipes.TryRemove(portName, out var ps))
             {
-                buffer.Dispose();
+                ps.Pipe.Writer.Complete();
+                ps.Cts.Cancel();
+                ps.Dispose();
             }
+        }
+    }
+
+    private async Task ProcessPipeLoopAsync(string portName, PortPipeState ps)
+    {
+        var pipe = ps.Pipe;
+        var ct = ps.Cts.Token;
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                ReadResult result = await pipe.Reader.ReadAsync(ct);
+                // SequenceReader 是 ref struct，不能在 async 方法中声明，抽取到同步方法
+                DrainBuffer(result.Buffer, pipe.Reader, portName);
+                if (result.IsCompleted) break;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[JSON] {Port} 管道处理循环异常退出", portName);
+        }
+        finally
+        {
+            await pipe.Reader.CompleteAsync();
+            _pipes.TryRemove(portName, out _);
+        }
+    }
+
+    /// <summary>同步方法：从 ReadOnlySequence 中按 \n 分割并消费完整行</summary>
+    private static void DrainBuffer(ReadOnlySequence<byte> buffer, PipeReader reader, string portName)
+    {
+        var seqReader = new SequenceReader<byte>(buffer);
+        while (seqReader.TryReadTo(out ReadOnlySequence<byte> line, (byte)'\n'))
+        {
+            ProcessLine(portName, line);
+        }
+        reader.AdvanceTo(seqReader.Position, buffer.End);
+    }
+
+    private static void ProcessLine(string portName, ReadOnlySequence<byte> line)
+    {
+        // 第一步：提取连续字节段
+        byte[]? rented = null;
+        try
+        {
+            ReadOnlySpan<byte> span;
+            if (line.IsSingleSegment)
+            {
+                span = line.FirstSpan;
+            }
+            else
+            {
+                rented = ArrayPool<byte>.Shared.Rent((int)line.Length);
+                line.CopyTo(rented);
+                span = rented.AsSpan(0, (int)line.Length);
+            }
+
+            // 兼容 CRLF 和 LF
+            if (span.Length > 0 && span[^1] == (byte)'\r')
+                span = span[..^1];
+
+            if (span.Length > 0)
+            {
+                // 内部 try-catch：不捕获 ref struct
+                try
+                {
+                    var payload = JsonSerializer.Deserialize<TelemetryPayload>(span);
+                    if (payload != null)
+                    {
+                        WeakReferenceMessenger.Default.Send(new DeviceTelemetryMessage(portName, payload));
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    string errorJson = Encoding.UTF8.GetString(span);
+                    Log.Warning(ex, "串口 {PortName} 收到无效的 JSON 数据: {RawData}", portName, errorJson);
+                }
+            }
+        }
+        finally
+        {
+            if (rented != null) ArrayPool<byte>.Shared.Return(rented);
         }
     }
 
     public void Dispose()
     {
-        foreach (var buffer in _lineBuffers.Values)
+        foreach (string portName in _pipes.Keys.ToList())
         {
-            buffer.Dispose();
+            if (_pipes.TryRemove(portName, out var ps))
+            {
+                ps.Pipe.Writer.Complete();
+                ps.Cts.Cancel();
+                ps.Dispose();
+            }
         }
-        _lineBuffers.Clear();
         GC.SuppressFinalize(this);
+    }
+
+    private sealed class PortPipeState : IDisposable
+    {
+        public Pipe Pipe { get; }
+        public CancellationTokenSource Cts { get; }
+        public Task ProcessingTask { get; set; } = Task.CompletedTask;
+
+        public PortPipeState()
+        {
+            Pipe = new Pipe(new PipeOptions(
+                pool: MemoryPool<byte>.Shared,
+                pauseWriterThreshold: 0,
+                resumeWriterThreshold: 0,
+                minimumSegmentSize: 4096,
+                useSynchronizationContext: false
+            ));
+            Cts = new CancellationTokenSource();
+        }
+
+        public void Dispose()
+        {
+            Cts.Cancel();
+            Cts.Dispose();
+        }
     }
 }

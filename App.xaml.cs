@@ -34,11 +34,11 @@ public partial class App : Application
             .Enrich.WithThreadId()
             .WriteTo.Async(a => a.File(
                 path: "logs/log-.txt",
-                rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 31,
                 fileSizeLimitBytes: 10 * 1024 * 1024,
+                rollingInterval: RollingInterval.Day,
                 rollOnFileSizeLimit: true
-            ))
+,
+                retainedFileCountLimit: 31))
             .WriteTo.Sink(new WpfSerilogSink())
             .CreateLogger();
     }
@@ -75,9 +75,6 @@ public partial class App : Application
         ServiceProvider.GetRequiredService<ISqliteRepository>()
             .InitializeDatabaseAsync()
             .GetAwaiter().GetResult();
-
-        // 强制实例化协议层服务以注册消息处理器
-        ServiceProvider.GetRequiredService<JsonProtocolService>();
 
         var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();

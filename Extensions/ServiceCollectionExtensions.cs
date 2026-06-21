@@ -12,8 +12,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISerialPortService, SerialPortService>();
         services.AddSingleton<ISqliteRepository, SqliteRepository>();
         services.AddSingleton<ISettingsService, SettingsService>();
-        services.AddSingleton<JsonProtocolService>();
-        services.AddSingleton<ModbusProtocolService>();
+        services.AddKeyedSingleton<IProtocolParser, JsonProtocolService>("JSON");
+        services.AddKeyedSingleton<IProtocolParser, ModbusProtocolService>("Modbus");
         services.AddSingleton<IDeviceCommunicationCoordinator, DeviceCommunicationCoordinator>();
         services.AddSingleton<IAlarmStateMachine, AlarmStateMachine>();
         services.AddSingleton<ConnectionViewModel>();

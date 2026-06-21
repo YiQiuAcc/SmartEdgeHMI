@@ -10,10 +10,12 @@ public static class LttbDownsampler
     public static List<SensorReadingEntity> Downsample(List<SensorReadingEntity> data, int targetCount)
     {
         if (data.Count <= targetCount || targetCount < 3)
-            return new List<SensorReadingEntity>(data);
+            return [.. data];
 
-        var result = new List<SensorReadingEntity>(targetCount);
-        result.Add(data[0]);
+        var result = new List<SensorReadingEntity>(targetCount)
+        {
+            data[0]
+        };
 
         double bucketSize = (double)(data.Count - 2) / (targetCount - 2);
 
@@ -23,7 +25,7 @@ public static class LttbDownsampler
             int bucketEnd = 1 + (int)((bucketIndex + 1) * bucketSize);
             if (bucketEnd >= data.Count - 1) bucketEnd = data.Count - 1;
 
-            var prev = result[result.Count - 1];
+            var prev = result[^1];
 
             // 下一桶的平均点（用于三角形面积计算）
             int nextBucketStart = bucketEnd;
@@ -69,7 +71,7 @@ public static class LttbDownsampler
             result.Add(data[selectedIndex]);
         }
 
-        result.Add(data[data.Count - 1]);
+        result.Add(data[^1]);
         return result;
     }
 
