@@ -6,12 +6,14 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using SmartEdgeHMI.Infrastructure;
+using SmartEdgeHMI.Models;
+using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Entities;
 using SmartEdgeHMI.Models.Enums;
 
 namespace SmartEdgeHMI.Services;
 
-public sealed class SqliteRepository : ISqliteRepository
+public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, IAsyncDisposable
 {
     private readonly string _connectionString;
     private readonly int _queryLimit;
@@ -24,6 +26,8 @@ public sealed class SqliteRepository : ISqliteRepository
     private const int TelemetryBatchSize = 50;
     private const int TelemetryFlushIntervalMs = 10_000;
 
+    private bool _disposed;
+
     static SqliteRepository()
     {
         SqlMapper.AddTypeHandler(new DataQualityTypeHandler());
@@ -35,7 +39,6 @@ public sealed class SqliteRepository : ISqliteRepository
         _connectionString = ResolveConnectionString(raw);
         _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
 
-        // 遥测 Channel
         _telemetryChannel = Channel.CreateBounded<SensorReadingEntity>(new BoundedChannelOptions(TelemetryBatchSize * 10)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -64,19 +67,33 @@ public sealed class SqliteRepository : ISqliteRepository
         return connection;
     }
 
-    // 报警历史（直接写入）
+    // ===== IAlarmRepository =====
 
-    public async Task<List<AlarmRecordEntity>> GetAlarmHistoryAsync()
+    public async Task<List<AlarmRecordEntity>> GetAlarmHistoryAsync(AlarmHistoryFilter? filter = null)
     {
         try
         {
             await using var connection = await CreateConnectionAsync();
 
-            var result = await connection.QueryAsync<AlarmRecordEntity>(
-                "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC LIMIT @Limit",
-                new { Limit = _queryLimit });
+            // Dapper：广查询，SQL 保持简单纯粹，无 WHERE 子句
+            var result = (await connection.QueryAsync<AlarmRecordEntity>(
+                "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC")).AsList();
 
-            return result.AsList();
+            // LINQ：内存中多条件组合过滤
+            if (filter is not null)
+            {
+                result = result
+                    .Where(r => !filter.From.HasValue || r.Timestamp >= filter.From.Value)
+                    .Where(r => !filter.To.HasValue || r.Timestamp <= filter.To.Value)
+                    .Where(r => filter.DeviceId is null
+                        || r.DeviceId.Equals(filter.DeviceId, StringComparison.OrdinalIgnoreCase))
+                    .Where(r => filter.AlarmCode is null
+                        || r.AlarmCode.Equals(filter.AlarmCode, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
+            int limit = filter?.Limit ?? _queryLimit;
+            return result.Take(limit).ToList();
         }
         catch (Exception ex)
         {
@@ -102,7 +119,64 @@ public sealed class SqliteRepository : ISqliteRepository
         }
     }
 
-    // 遥测历史
+    /// <summary>演示：Dapper 宽查询 + LINQ GroupJoin/SelectMany 层级数据组装</summary>
+    public async Task<List<AlarmWithTelemetryDto>> GetAlarmsWithTelemetryContextAsync(
+        AlarmHistoryFilter? filter = null, TimeSpan? telemetryWindow = null)
+    {
+        TimeSpan window = telemetryWindow ?? TimeSpan.FromMinutes(5);
+
+        try
+        {
+            await using var connection = await CreateConnectionAsync();
+
+            // 1. Dapper — 两张表各自一条简单 SELECT，无 JOIN
+            var alarms = (await connection.QueryAsync<AlarmRecordEntity>(
+                "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC")).AsList();
+
+            var telemetry = (await connection.QueryAsync<SensorReadingEntity>(
+                "SELECT * FROM TelemetryHistory ORDER BY Timestamp ASC")).AsList();
+
+            // 2. LINQ — 内存过滤 + GroupJoin 按 DeviceId 分组 + SelectMany 时间窗口关联
+            if (filter is not null)
+            {
+                alarms = alarms
+                    .Where(r => !filter.From.HasValue || r.Timestamp >= filter.From.Value)
+                    .Where(r => !filter.To.HasValue || r.Timestamp <= filter.To.Value)
+                    .Where(r => filter.DeviceId is null
+                        || r.DeviceId.Equals(filter.DeviceId, StringComparison.OrdinalIgnoreCase))
+                    .Where(r => filter.AlarmCode is null
+                        || r.AlarmCode.Equals(filter.AlarmCode, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
+            int limit = filter?.Limit ?? _queryLimit;
+            var limitedAlarms = alarms.Take(limit).ToList();
+
+            return limitedAlarms
+                .GroupJoin(
+                    telemetry,
+                    alarm => alarm.DeviceId,
+                    reading => reading.DeviceId,
+                    (alarm, deviceReadings) => new { alarm, deviceReadings })
+                .Select(x => new AlarmWithTelemetryDto
+                {
+                    Alarm = x.alarm,
+                    SurroundingTelemetry = x.deviceReadings
+                        .Where(r => r.Timestamp >= x.alarm.Timestamp - window
+                                 && r.Timestamp <= x.alarm.Timestamp + window)
+                        .OrderBy(r => r.Timestamp)
+                        .ToList()
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "读取报警上下文失败");
+            return [];
+        }
+    }
+
+    // ===== ITelemetryRepository =====
 
     public async Task SaveTelemetryAsync(SensorReadingEntity entity)
     {
@@ -200,7 +274,6 @@ public sealed class SqliteRepository : ISqliteRepository
 
             await connection.ExecuteAsync(sql, batch, transaction: transaction);
             transaction.Commit();
-            // Log.Debug("批量写入 {Count} 条遥测记录", batch.Count);
         }
         catch (Exception ex)
         {
@@ -208,7 +281,7 @@ public sealed class SqliteRepository : ISqliteRepository
         }
     }
 
-    // 数据库初始化
+    // ===== 数据库初始化（不属于任一接口，仅启动时调用） =====
 
     public async Task InitializeDatabaseAsync()
     {
@@ -276,10 +349,13 @@ public sealed class SqliteRepository : ISqliteRepository
             await connection.ExecuteAsync("ALTER TABLE AlarmHistory ADD COLUMN QualityCode INTEGER NOT NULL DEFAULT 0");
     }
 
-    // 资源释放
+    // ===== 资源释放 =====
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         _telemetryChannel.Writer.Complete();
         await _telemetryCts.CancelAsync();
 

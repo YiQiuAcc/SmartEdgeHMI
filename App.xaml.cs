@@ -72,7 +72,7 @@ public partial class App : Application
             .BuildServiceProvider();
 
         // 初始化数据库
-        ServiceProvider.GetRequiredService<ISqliteRepository>()
+        ServiceProvider.GetRequiredService<SqliteRepository>()
             .InitializeDatabaseAsync()
             .GetAwaiter().GetResult();
 

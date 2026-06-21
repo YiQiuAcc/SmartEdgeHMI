@@ -13,6 +13,17 @@ public class AlarmStateMachine : IAlarmStateMachine
     private readonly Dictionary<string, int> _recoveryCounters = [];
     private readonly object _syncRoot = new();
 
+    public IReadOnlyDictionary<string, ErrorCode> ActiveAlarms
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return new Dictionary<string, ErrorCode>(_activeAlarms);
+            }
+        }
+    }
+
     public AlarmRecordEntity? Evaluate(TelemetryPayload payload)
     {
         if (payload.QualityCode == DataQuality.Bad)

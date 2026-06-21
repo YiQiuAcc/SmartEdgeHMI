@@ -14,13 +14,13 @@ namespace SmartEdgeHMI.ViewModels;
 public partial class AlarmHistoryViewModel : ViewModelBase,
     IRecipient<AlarmRecordedMessage>
 {
-    private readonly ISqliteRepository _sqliteRepo;
+    private readonly IAlarmRepository _alarmRepo;
 
     public BulkObservableCollection<AlarmRecordEntity> AlarmRecords { get; } = [];
 
-    public AlarmHistoryViewModel(ISqliteRepository sqliteRepo)
+    public AlarmHistoryViewModel(IAlarmRepository alarmRepo)
     {
-        _sqliteRepo = sqliteRepo;
+        _alarmRepo = alarmRepo;
         EnableCollectionSynchronization(AlarmRecords);
 
         var view = CollectionViewSource.GetDefaultView(AlarmRecords);
@@ -47,7 +47,7 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
     {
         try
         {
-            await _sqliteRepo.SaveAlarmRecordAsync(record);
+            await _alarmRepo.SaveAlarmRecordAsync(record);
         }
         catch (Exception ex)
         {
@@ -70,7 +70,7 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
     [RelayCommand]
     private async Task LoadAlarmHistoryAsync()
     {
-        var data = await _sqliteRepo.GetAlarmHistoryAsync();
+        var data = await _alarmRepo.GetAlarmHistoryAsync();
         DispatchToUI(() =>
         {
             AlarmRecords.Clear();

@@ -7,7 +7,7 @@ using SmartEdgeHMI.Services;
 
 namespace SmartEdgeHMI.ViewModels;
 
-public partial class TrendViewModel(ISqliteRepository sqliteRepo) : ViewModelBase
+public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewModelBase
 {
     [ObservableProperty]
     private DateTime _startTime = DateTime.Now.AddHours(-1);
@@ -31,7 +31,7 @@ public partial class TrendViewModel(ISqliteRepository sqliteRepo) : ViewModelBas
             Log.Information("加载历史趋势: {From} ~ {To}, 目标点数 {Points}",
                 StartTime, EndTime, TargetPoints);
 
-            var data = await sqliteRepo.GetTelemetryHistoryAsync(StartTime, EndTime, TargetPoints);
+            var data = await telemetryRepo.GetTelemetryHistoryAsync(StartTime, EndTime, TargetPoints);
 
             WeakReferenceMessenger.Default.Send(new TrendDataLoadedMessage(Constants.AppConstants.DefaultDeviceName, data));
 

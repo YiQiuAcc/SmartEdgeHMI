@@ -10,8 +10,11 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAppServices(this IServiceCollection services)
     {
         services.AddSingleton<ISerialPortService, SerialPortService>();
-        services.AddSingleton<ISqliteRepository, SqliteRepository>();
+        services.AddSingleton<SqliteRepository>();
+        services.AddSingleton<ITelemetryRepository>(sp => sp.GetRequiredService<SqliteRepository>());
+        services.AddSingleton<IAlarmRepository>(sp => sp.GetRequiredService<SqliteRepository>());
         services.AddSingleton<ISettingsService, SettingsService>();
+        services.AddSingleton<IDeviceStateContainer, DeviceStateContainer>();
         services.AddKeyedSingleton<IProtocolParser, JsonProtocolService>("JSON");
         services.AddKeyedSingleton<IProtocolParser, ModbusProtocolService>("Modbus");
         services.AddSingleton<IDeviceCommunicationCoordinator, DeviceCommunicationCoordinator>();

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -19,13 +20,14 @@ public partial class MonitorViewModel : ViewModelBase,
     private readonly ISettingsService _settingsService;
     private readonly IDeviceCommunicationCoordinator _coordinator;
     private readonly IAlarmStateMachine _alarmStateMachine;
-    private readonly ISqliteRepository _sqliteRepo;
+    private readonly ITelemetryRepository _telemetryRepo;
+    private readonly IDeviceStateContainer _deviceState;
 
     private CancellationTokenSource? _saveThresholdCts;
     private bool _isInitializing;
 
-    [ObservableProperty]
-    private double _currentTemperature = 25.0;
+    /// <summary>代理到 StateContainer — 保持 XAML 绑定兼容</summary>
+    public double CurrentTemperature => _deviceState.LatestTemperature;
 
     [ObservableProperty]
     private double _alarmThreshold = 50.0;
@@ -34,15 +36,25 @@ public partial class MonitorViewModel : ViewModelBase,
         ISettingsService settingsService,
         IDeviceCommunicationCoordinator coordinator,
         IAlarmStateMachine alarmStateMachine,
-        ISqliteRepository sqliteRepo)
+        ITelemetryRepository telemetryRepo,
+        IDeviceStateContainer deviceState)
     {
         _settingsService = settingsService;
         _coordinator = coordinator;
         _alarmStateMachine = alarmStateMachine;
-        _sqliteRepo = sqliteRepo;
+        _telemetryRepo = telemetryRepo;
+        _deviceState = deviceState;
+
+        _deviceState.PropertyChanged += OnDeviceStateChanged;
 
         WeakReferenceMessenger.Default.RegisterAll(this);
         LoadSavedThreshold();
+    }
+
+    private void OnDeviceStateChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(IDeviceStateContainer.LatestTemperature))
+            OnPropertyChanged(nameof(CurrentTemperature));
     }
 
     private void LoadSavedThreshold()
@@ -65,9 +77,13 @@ public partial class MonitorViewModel : ViewModelBase,
     public void Receive(DeviceTelemetryMessage message)
     {
         var payload = message.Payload;
-        DispatchToUI(() => CurrentTemperature = payload.Temperature);
 
-        _ = _sqliteRepo.SaveTelemetryAsync(new SensorReadingEntity
+        // 更新全局状态容器
+        _deviceState.UpdateTelemetry(message.PortName, payload.Temperature,
+            payload.Humidity, payload.StatusCode, payload.ErrorCode, payload.QualityCode);
+
+        // 持久化到 SQLite
+        _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingEntity
         {
             DeviceId = payload.DeviceId,
             Timestamp = DateTime.Now,
@@ -78,9 +94,11 @@ public partial class MonitorViewModel : ViewModelBase,
             QualityCode = payload.QualityCode
         });
 
+        // 报警评估（业务逻辑不变）
         var alarmRecord = _alarmStateMachine.Evaluate(payload);
         if (alarmRecord is not null)
         {
+            _deviceState.UpdateActiveAlarms(_alarmStateMachine.ActiveAlarms);
             WeakReferenceMessenger.Default.Send(new AlarmRecordedMessage(alarmRecord));
             Log.Warning("报警触发: {DeviceId}, 错误码: {ErrorCode}, 触发值: {Value}",
                 alarmRecord.DeviceId, alarmRecord.AlarmCode, alarmRecord.TriggerValue);
@@ -89,10 +107,12 @@ public partial class MonitorViewModel : ViewModelBase,
 
     public void Receive(SensorReadingMessage message)
     {
-        float temperature = message.Temperature;
-        DispatchToUI(() => CurrentTemperature = temperature);
+        // 更新全局状态容器
+        _deviceState.UpdateTelemetry(message.PortName, message.Temperature,
+            message.Humidity, message.StatusCode, message.ErrorCode, DataQuality.Good);
 
-        _ = _sqliteRepo.SaveTelemetryAsync(new SensorReadingEntity
+        // 持久化到 SQLite
+        _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingEntity
         {
             DeviceId = AppConstants.DefaultDeviceName,
             Timestamp = DateTime.Now,
@@ -103,6 +123,7 @@ public partial class MonitorViewModel : ViewModelBase,
             QualityCode = DataQuality.Good
         });
 
+        // 构造 TelemetryPayload 供报警状态机评估
         var payload = new TelemetryPayload
         {
             DeviceId = AppConstants.DefaultDeviceName,
@@ -116,6 +137,7 @@ public partial class MonitorViewModel : ViewModelBase,
         var alarmRecord = _alarmStateMachine.Evaluate(payload);
         if (alarmRecord is not null)
         {
+            _deviceState.UpdateActiveAlarms(_alarmStateMachine.ActiveAlarms);
             WeakReferenceMessenger.Default.Send(new AlarmRecordedMessage(alarmRecord));
             Log.Warning("报警触发: {DeviceId}, 错误码: {ErrorCode}, 触发值: {Value}",
                 alarmRecord.DeviceId, alarmRecord.AlarmCode, alarmRecord.TriggerValue);
@@ -124,6 +146,8 @@ public partial class MonitorViewModel : ViewModelBase,
 
     public void Receive(DeviceStateChangedMessage message)
     {
+        _deviceState.UpdateConnectionState(message.PortName, message.State);
+
         if (message.State == ConnectionState.Connected)
             _ = SaveThresholdSafeAsync(AlarmThreshold);
     }
