@@ -110,7 +110,7 @@ public class JsonProtocolService : IProtocolParser
                     var payload = JsonSerializer.Deserialize<TelemetryPayload>(span);
                     if (payload != null)
                     {
-                        WeakReferenceMessenger.Default.Send(new DeviceTelemetryMessage(portName, payload));
+                        WeakReferenceMessenger.Default.Send(new DeviceTelemetry(portName, payload));
                     }
                 }
                 catch (JsonException ex)

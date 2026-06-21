@@ -223,8 +223,6 @@ public class ModbusProtocolService : IProtocolParser
     private static SequencePosition ParseBuffer(ReadOnlySequence<byte> buffer, string portName)
     {
         var reader = new SequenceReader<byte>(buffer);
-        long initialRemaining = reader.Remaining;
-        int framesProcessed = 0;
 
         while (reader.Remaining >= 5)
         {
@@ -263,7 +261,6 @@ public class ModbusProtocolService : IProtocolParser
                 {
                     ProcessValidFrame(frame, portName);
                     reader.Advance(expectedLength);
-                    framesProcessed++;
                 }
                 else
                 {
@@ -328,7 +325,7 @@ public class ModbusProtocolService : IProtocolParser
             errorCode = (ErrorCode)rawError;
         }
 
-        WeakReferenceMessenger.Default.Send(new SensorReadingMessage(
+        WeakReferenceMessenger.Default.Send(new SensorReading(
             portName, actualTemperature, actualHumidity, statusCode, errorCode));
     }
 

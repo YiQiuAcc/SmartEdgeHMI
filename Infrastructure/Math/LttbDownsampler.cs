@@ -6,12 +6,12 @@ using System;
 
 public static class LttbDownsampler
 {
-    public static List<SensorReadingEntity> Downsample(List<SensorReadingEntity> data, int targetCount)
+    public static List<SensorReadingRecord> Downsample(List<SensorReadingRecord> data, int targetCount)
     {
         if (data.Count <= targetCount || targetCount < 3)
             return [.. data];
 
-        var result = new List<SensorReadingEntity>(targetCount) { data[0] };
+        var result = new List<SensorReadingRecord>(targetCount) { data[0] };
         double bucketSize = (double)(data.Count - 2) / (targetCount - 2);
 
         for (int bucketIndex = 0; bucketIndex < targetCount - 2; bucketIndex++)

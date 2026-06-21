@@ -15,6 +15,6 @@ public class WpfSerilogSink : ILogEventSink
             Level = logEvent.Level.ToString().ToUpper(),
             Message = logEvent.RenderMessage()
         };
-        WeakReferenceMessenger.Default.Send(new LogUpdateMessage(logModel));
+        WeakReferenceMessenger.Default.Send(new LogUpdate(logModel));
     }
 }

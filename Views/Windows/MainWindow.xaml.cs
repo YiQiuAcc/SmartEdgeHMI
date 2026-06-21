@@ -10,9 +10,9 @@ using SmartEdgeHMI.ViewModels;
 namespace SmartEdgeHMI.Views;
 
 public partial class MainWindow : Window,
-    IRecipient<DeviceTelemetryMessage>,
-    IRecipient<SensorReadingMessage>,
-    IRecipient<TrendDataLoadedMessage>
+    IRecipient<DeviceTelemetry>,
+    IRecipient<SensorReading>,
+    IRecipient<TrendDataLoaded>
 {
     private readonly Dictionary<string, ScottPlot.Plottables.DataLogger> _loggers = [];
     private static readonly Color[] _loggerColors = [Colors.Cyan, Colors.Gold];
@@ -54,13 +54,13 @@ public partial class MainWindow : Window,
         DataPlot.Refresh();
     }
 
-    public void Receive(DeviceTelemetryMessage message)
+    public void Receive(DeviceTelemetry message)
         => AddTemperature(message.PortName, message.Payload.Temperature.Celsius);
 
-    public void Receive(SensorReadingMessage message)
+    public void Receive(SensorReading message)
         => AddTemperature(message.PortName, message.Temperature.Celsius);
 
-    public void Receive(TrendDataLoadedMessage message)
+    public void Receive(TrendDataLoaded message)
     {
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher is null) return;

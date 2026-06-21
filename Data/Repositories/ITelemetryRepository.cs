@@ -4,7 +4,7 @@ namespace SmartEdgeHMI.Data.Repositories;
 
 public interface ITelemetryRepository
 {
-    Task SaveTelemetryAsync(SensorReadingEntity entity);
+    Task SaveTelemetryAsync(SensorReadingRecord entity);
 
-    Task<List<SensorReadingEntity>> GetTelemetryHistoryAsync(DateTime from, DateTime to, int targetPoints);
+    Task<List<SensorReadingRecord>> GetTelemetryHistoryAsync(DateTime from, DateTime to, int targetPoints);
 }

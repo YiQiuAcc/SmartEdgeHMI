@@ -52,7 +52,7 @@ public class SerialPortService : ISerialPortService, IDisposable
             return; // 端口已存在, 不重复创建
         }
 
-        WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(portName, ConnectionState.Connected));
+        WeakReferenceMessenger.Default.Send(new DeviceStateChanged(portName, ConnectionState.Connected));
 
         // 生产者线程：从串口 BaseStream 不断读取原始字节写入 Channel
         _ = Task.Run(async () =>
@@ -118,7 +118,7 @@ public class SerialPortService : ISerialPortService, IDisposable
         {
             await foreach (byte[] chunk in context.DataChannel.Reader.ReadAllAsync(context.Cts.Token))
             {
-                WeakReferenceMessenger.Default.Send(new RawDataReceivedMessage(portName, chunk));
+                WeakReferenceMessenger.Default.Send(new RawDataReceived(portName, chunk));
             }
         }
         catch (OperationCanceledException) { }
@@ -127,7 +127,7 @@ public class SerialPortService : ISerialPortService, IDisposable
     /// <summary>处理意外断线：广播错误状态并清理端口资源</summary>
     private void HandleUnexpectedDisconnect(string portName)
     {
-        WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(portName, ConnectionState.Error, "硬件连接异常断开"));
+        WeakReferenceMessenger.Default.Send(new DeviceStateChanged(portName, ConnectionState.Error, "硬件连接异常断开"));
         ClosePort(portName);
     }
 
@@ -147,7 +147,7 @@ public class SerialPortService : ISerialPortService, IDisposable
                 context.Cts.Dispose();
             }
 
-            WeakReferenceMessenger.Default.Send(new DeviceStateChangedMessage(portName, ConnectionState.Disconnected));
+            WeakReferenceMessenger.Default.Send(new DeviceStateChanged(portName, ConnectionState.Disconnected));
         }
     }
 

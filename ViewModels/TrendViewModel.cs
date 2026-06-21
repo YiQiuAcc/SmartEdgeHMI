@@ -34,7 +34,7 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
 
             var data = await telemetryRepo.GetTelemetryHistoryAsync(StartTime, EndTime, TargetPoints);
 
-            WeakReferenceMessenger.Default.Send(new TrendDataLoadedMessage(AppConstants.DefaultDeviceName, data));
+            WeakReferenceMessenger.Default.Send(new TrendDataLoaded(AppConstants.DefaultDeviceName, data));
 
             Log.Information("历史趋势加载完成, 返回 {Count} 个数据点", data.Count);
         }
@@ -54,7 +54,7 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
     {
         if (!value)
         {
-            WeakReferenceMessenger.Default.Send(new TrendDataLoadedMessage(string.Empty, []));
+            WeakReferenceMessenger.Default.Send(new TrendDataLoaded(string.Empty, []));
         }
     }
 }

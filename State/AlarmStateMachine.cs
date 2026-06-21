@@ -38,7 +38,7 @@ public class AlarmStateMachine : IAlarmStateMachine
     /// 下降沿(Alarm→Normal)：递增恢复计数器, 达阈值才算真正恢复
     /// - 稳态(Normal→Normal)：跳过 Bad 质量码的数据直接忽略(数据不可信, 不触发任何状态变更)
     /// </summary>
-    public AlarmRecordEntity? Evaluate(TelemetryPayload payload)
+    public AlarmRecord? Evaluate(TelemetryPayload payload)
     {
         if (payload.QualityCode == DataQuality.Bad)
             return null;
@@ -81,7 +81,7 @@ public class AlarmStateMachine : IAlarmStateMachine
         }
     }
 
-    private static AlarmRecordEntity CreateRecord(TelemetryPayload payload) => new()
+    private static AlarmRecord CreateRecord(TelemetryPayload payload) => new()
     {
         DeviceId = payload.DeviceId,
         Timestamp = DateTime.Now,

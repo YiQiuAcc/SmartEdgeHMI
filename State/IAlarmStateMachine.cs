@@ -6,6 +6,6 @@ namespace SmartEdgeHMI.State;
 
 public interface IAlarmStateMachine
 {
-    AlarmRecordEntity? Evaluate(TelemetryPayload payload);
+    AlarmRecord? Evaluate(TelemetryPayload payload);
     IReadOnlyDictionary<string, ErrorCode> ActiveAlarms { get; }
 }

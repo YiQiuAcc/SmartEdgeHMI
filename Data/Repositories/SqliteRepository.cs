@@ -23,7 +23,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
     private readonly int _queryLimit;
 
     // 遥测批量写入双缓冲通道：支持多生产者(多协议采集线程)单消费者(后台刷盘任务)
-    private readonly Channel<SensorReadingEntity> _telemetryChannel;
+    private readonly Channel<SensorReadingRecord> _telemetryChannel;
     private readonly CancellationTokenSource _telemetryCts;
     private readonly Task _telemetryConsumerTask;
 
@@ -48,7 +48,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
 
         // Bounded Channel：容量 = 批次大小 × 10, 满时 Wait 阻塞生产者防止无限堆积
-        _telemetryChannel = Channel.CreateBounded<SensorReadingEntity>(new BoundedChannelOptions(TelemetryBatchSize * 10)
+        _telemetryChannel = Channel.CreateBounded<SensorReadingRecord>(new BoundedChannelOptions(TelemetryBatchSize * 10)
         {
             FullMode = BoundedChannelFullMode.Wait,
             SingleWriter = false, // 多协议采集线程可并发写入
@@ -79,13 +79,13 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
     }
 
     // ──────────────── IAlarmRepository ────────────────
-    public async Task<List<AlarmRecordEntity>> GetAlarmHistoryAsync(AlarmHistoryFilter? filter = null)
+    public async Task<List<AlarmRecord>> GetAlarmHistoryAsync(AlarmHistoryFilter? filter = null)
     {
         try
         {
             await using var connection = await CreateConnectionAsync();
 
-            var result = (await connection.QueryAsync<AlarmRecordEntity>(
+            var result = (await connection.QueryAsync<AlarmRecord>(
                 "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC")).AsList();
 
             if (filter is not null)
@@ -107,7 +107,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         }
     }
 
-    public async Task SaveAlarmRecordAsync(AlarmRecordEntity alarmRecord)
+    public async Task SaveAlarmRecordAsync(AlarmRecord alarmRecord)
     {
         try
         {
@@ -124,7 +124,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         }
     }
 
-    public async Task<List<AlarmWithTelemetryDto>> GetAlarmsWithTelemetryContextAsync(
+    public async Task<List<AlarmWithTelemetry>> GetAlarmsWithTelemetryContextAsync(
         AlarmHistoryFilter? filter = null, TimeSpan? telemetryWindow = null)
     {
         TimeSpan window = telemetryWindow ?? TimeSpan.FromMinutes(5);
@@ -133,10 +133,10 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         {
             await using var connection = await CreateConnectionAsync();
 
-            var alarms = (await connection.QueryAsync<AlarmRecordEntity>(
+            var alarms = (await connection.QueryAsync<AlarmRecord>(
                 "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC")).AsList();
 
-            var telemetry = (await connection.QueryAsync<SensorReadingEntity>(
+            var telemetry = (await connection.QueryAsync<SensorReadingRecord>(
                 "SELECT * FROM TelemetryHistory ORDER BY Timestamp ASC")).AsList();
 
             if (filter is not null)
@@ -157,7 +157,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
                     alarm => alarm.DeviceId,
                     reading => reading.DeviceId,
                     (alarm, deviceReadings) => new { alarm, deviceReadings })
-                .Select(x => new AlarmWithTelemetryDto
+                .Select(x => new AlarmWithTelemetry
                 {
                     Alarm = x.alarm,
                     SurroundingTelemetry = [.. x.deviceReadings
@@ -174,7 +174,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
     }
 
     // ITelemetryRepository
-    public async Task SaveTelemetryAsync(SensorReadingEntity entity)
+    public async Task SaveTelemetryAsync(SensorReadingRecord entity)
     {
         try
         {
@@ -186,7 +186,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         }
     }
 
-    public async Task<List<SensorReadingEntity>> GetTelemetryHistoryAsync(DateTime from, DateTime to, int targetPoints)
+    public async Task<List<SensorReadingRecord>> GetTelemetryHistoryAsync(DateTime from, DateTime to, int targetPoints)
     {
         try
         {
@@ -198,7 +198,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
             ORDER BY Timestamp ASC
             """;
 
-            var rawData = (await connection.QueryAsync<SensorReadingEntity>(sql,
+            var rawData = (await connection.QueryAsync<SensorReadingRecord>(sql,
                 new { From = from, To = to })).AsList();
 
             if (rawData.Count <= targetPoints)
@@ -215,7 +215,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
 
     private async Task ConsumeTelemetryAsync(CancellationToken ct)
     {
-        var batch = new List<SensorReadingEntity>(TelemetryBatchSize);
+        var batch = new List<SensorReadingRecord>(TelemetryBatchSize);
         var lastFlush = DateTime.UtcNow;
 
         while (!ct.IsCancellationRequested)
@@ -256,7 +256,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
             await FlushTelemetryBatchAsync(batch);
     }
 
-    private async Task FlushTelemetryBatchAsync(List<SensorReadingEntity> batch)
+    private async Task FlushTelemetryBatchAsync(List<SensorReadingRecord> batch)
     {
         try
         {

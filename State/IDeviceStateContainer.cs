@@ -15,8 +15,6 @@ public interface IDeviceStateContainer : INotifyPropertyChanged
     DateTime LatestTimestamp { get; }
     string LatestPortName { get; }
 
-    DeviceStateSnapshot? GetDeviceState(string portName);
-
     IReadOnlyDictionary<string, ErrorCode> ActiveAlarms { get; }
     bool HasActiveAlarms { get; }
 

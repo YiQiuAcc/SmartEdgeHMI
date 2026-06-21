@@ -12,11 +12,11 @@ using SmartEdgeHMI.Models.Messages;
 namespace SmartEdgeHMI.ViewModels;
 
 public partial class AlarmHistoryViewModel : ViewModelBase,
-    IRecipient<AlarmRecordedMessage>
+    IRecipient<AlarmRecorded>
 {
     private readonly IAlarmRepository _alarmRepo;
 
-    public BulkObservableCollection<AlarmRecordEntity> AlarmRecords { get; } = [];
+    public BulkObservableCollection<AlarmRecord> AlarmRecords { get; } = [];
 
     public AlarmHistoryViewModel(IAlarmRepository alarmRepo)
     {
@@ -24,13 +24,13 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
         EnableCollectionSynchronization(AlarmRecords);
 
         var view = CollectionViewSource.GetDefaultView(AlarmRecords);
-        view.SortDescriptions.Add(new SortDescription(nameof(AlarmRecordEntity.Timestamp), ListSortDirection.Descending));
+        view.SortDescriptions.Add(new SortDescription(nameof(AlarmRecord.Timestamp), ListSortDirection.Descending));
 
         WeakReferenceMessenger.Default.RegisterAll(this);
         _ = LoadAlarmHistorySafeAsync();
     }
 
-    public void Receive(AlarmRecordedMessage message)
+    public void Receive(AlarmRecorded message)
     {
         DispatchToUI(() =>
         {
@@ -42,7 +42,7 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
         _ = SaveAlarmToDbAsync(message.Record);
     }
 
-    private async Task SaveAlarmToDbAsync(AlarmRecordEntity record)
+    private async Task SaveAlarmToDbAsync(AlarmRecord record)
     {
         try
         {

@@ -26,9 +26,6 @@ public class DeviceStateContainer : IDeviceStateContainer
     public DateTime LatestTimestamp { get; private set; } = DateTime.Now;
     public string LatestPortName { get; private set; } = string.Empty;
 
-    public DeviceStateSnapshot? GetDeviceState(string portName) =>
-        _deviceStates.TryGetValue(portName, out var snap) ? snap : null;
-
     public IReadOnlyDictionary<string, ErrorCode> ActiveAlarms =>
         new Dictionary<string, ErrorCode>(_activeAlarms);
 

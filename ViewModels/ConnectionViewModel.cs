@@ -10,7 +10,7 @@ using SmartEdgeHMI.Models.Messages;
 namespace SmartEdgeHMI.ViewModels;
 
 public partial class ConnectionViewModel : ViewModelBase,
-    IRecipient<DeviceStateChangedMessage>
+    IRecipient<DeviceStateChanged>
 {
     private readonly ISerialPortService _serialPortService;
     private readonly HashSet<string> _connectedPorts = [];
@@ -54,7 +54,7 @@ public partial class ConnectionViewModel : ViewModelBase,
         WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
-    public void Receive(DeviceStateChangedMessage message)
+    public void Receive(DeviceStateChanged message)
     {
         DispatchToUI(() =>
         {

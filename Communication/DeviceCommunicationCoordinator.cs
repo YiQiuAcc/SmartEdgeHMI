@@ -12,8 +12,8 @@ using SmartEdgeHMI.ViewModels;
 namespace SmartEdgeHMI.Communication;
 
 public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
-    IRecipient<RawDataReceivedMessage>,
-    IRecipient<DeviceStateChangedMessage>
+    IRecipient<RawDataReceived>,
+    IRecipient<DeviceStateChanged>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ISerialPortService _serialPortService;
@@ -30,7 +30,7 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
         WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
-    public void Receive(RawDataReceivedMessage message)
+    public void Receive(RawDataReceived message)
     {
         if (message.Data.Length == 0) return;
 
@@ -47,13 +47,13 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
         parser.OnDataReceived(message.PortName, message.Data.AsSpan());
     }
 
-    public void Receive(DeviceStateChangedMessage message)
+    public void Receive(DeviceStateChanged message)
     {
         NotifyParser("JSON", message);
         NotifyParser("Modbus", message);
     }
 
-    private void NotifyParser(string key, DeviceStateChangedMessage message)
+    private void NotifyParser(string key, DeviceStateChanged message)
     {
         try
         {

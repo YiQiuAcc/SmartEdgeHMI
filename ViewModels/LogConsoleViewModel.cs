@@ -9,7 +9,7 @@ using SmartEdgeHMI.Models.Messages;
 namespace SmartEdgeHMI.ViewModels;
 
 public partial class LogConsoleViewModel : ViewModelBase,
-    IRecipient<LogUpdateMessage>
+    IRecipient<LogUpdate>
 {
     public BulkObservableCollection<SystemLogModel> SystemLogs { get; } = [];
 
@@ -23,7 +23,7 @@ public partial class LogConsoleViewModel : ViewModelBase,
         WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
-    public void Receive(LogUpdateMessage message)
+    public void Receive(LogUpdate message)
     {
         DispatchToUI(() =>
         {

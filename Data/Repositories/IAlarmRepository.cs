@@ -4,7 +4,7 @@ namespace SmartEdgeHMI.Data.Repositories;
 
 public interface IAlarmRepository
 {
-    Task<List<AlarmRecordEntity>> GetAlarmHistoryAsync(AlarmHistoryFilter? filter = null);
+    Task<List<AlarmRecord>> GetAlarmHistoryAsync(AlarmHistoryFilter? filter = null);
 
-    Task SaveAlarmRecordAsync(AlarmRecordEntity alarmRecord);
+    Task SaveAlarmRecordAsync(AlarmRecord alarmRecord);
 }

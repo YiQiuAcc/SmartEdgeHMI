@@ -14,9 +14,9 @@ using SmartEdgeHMI.State;
 namespace SmartEdgeHMI.ViewModels;
 
 public partial class MonitorViewModel : ViewModelBase,
-    IRecipient<DeviceTelemetryMessage>,
-    IRecipient<SensorReadingMessage>,
-    IRecipient<DeviceStateChangedMessage>
+    IRecipient<DeviceTelemetry>,
+    IRecipient<SensorReading>,
+    IRecipient<DeviceStateChanged>
 {
     private readonly ISettingsService _settingsService;
     private readonly IDeviceCommunicationCoordinator _coordinator;
@@ -77,14 +77,14 @@ public partial class MonitorViewModel : ViewModelBase,
     /// 处理 JSON 协议上报的遥测报文：
     /// 1) 更新设备状态容器 → 2) 持久化到 SQLite → 3) 报警状态机边缘触发判定
     /// </summary>
-    public void Receive(DeviceTelemetryMessage message)
+    public void Receive(DeviceTelemetry message)
     {
         var payload = message.Payload;
 
         _deviceState.UpdateTelemetry(message.PortName, payload.Temperature,
             payload.Humidity, payload.StatusCode, payload.ErrorCode, payload.QualityCode);
 
-        _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingEntity
+        _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingRecord
         {
             DeviceId = payload.DeviceId,
             Timestamp = DateTime.Now,
@@ -99,22 +99,22 @@ public partial class MonitorViewModel : ViewModelBase,
         if (alarmRecord is not null)
         {
             _deviceState.UpdateActiveAlarms(_alarmStateMachine.ActiveAlarms);
-            WeakReferenceMessenger.Default.Send(new AlarmRecordedMessage(alarmRecord));
+            WeakReferenceMessenger.Default.Send(new AlarmRecorded(alarmRecord));
             Log.Warning("报警触发: {DeviceId}, 错误码: {ErrorCode}, 触发值: {Value}",
                 alarmRecord.DeviceId, alarmRecord.AlarmCode, alarmRecord.TriggerValue);
         }
     }
 
     /// <summary>
-    /// 处理 Modbus 协议解析后的遥测数据(与 DeviceTelemetryMessage 处理流程一致, 但因协议不同需要额外构造 TelemetryPayload
+    /// 处理 Modbus 协议解析后的遥测数据(与 DeviceTelemetry 处理流程一致, 但因协议不同需要额外构造 TelemetryPayload
     /// 以复用报警状态机接口)。
     /// </summary>
-    public void Receive(SensorReadingMessage message)
+    public void Receive(SensorReading message)
     {
         _deviceState.UpdateTelemetry(message.PortName, message.Temperature,
             message.Humidity, message.StatusCode, message.ErrorCode, DataQuality.Good);
 
-        _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingEntity
+        _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingRecord
         {
             DeviceId = AppConstants.DefaultDeviceName,
             Timestamp = DateTime.Now,
@@ -139,14 +139,14 @@ public partial class MonitorViewModel : ViewModelBase,
         if (alarmRecord is not null)
         {
             _deviceState.UpdateActiveAlarms(_alarmStateMachine.ActiveAlarms);
-            WeakReferenceMessenger.Default.Send(new AlarmRecordedMessage(alarmRecord));
+            WeakReferenceMessenger.Default.Send(new AlarmRecorded(alarmRecord));
             Log.Warning("报警触发: {DeviceId}, 错误码: {ErrorCode}, 触发值: {Value}",
                 alarmRecord.DeviceId, alarmRecord.AlarmCode, alarmRecord.TriggerValue);
         }
     }
 
     /// <summary>处理设备连接状态变更：由设备状态容器统一管理连接状态, 连接建立时自动下发当前阈值到设备端。</summary>
-    public void Receive(DeviceStateChangedMessage message)
+    public void Receive(DeviceStateChanged message)
     {
         _deviceState.UpdateConnectionState(message.PortName, message.State);
 

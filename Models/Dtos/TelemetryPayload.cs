@@ -15,9 +15,6 @@ public class TelemetryPayload
     [JsonPropertyName("humidity")]
     public Humidity Humidity { get; init; }
 
-    [JsonPropertyName("count")]
-    public long OutputCount { get; init; }
-
     [JsonPropertyName("status")]
     public DeviceStatus StatusCode { get; init; }
 

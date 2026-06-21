@@ -1,16 +1,13 @@
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Models.ValueObjects;
 
 namespace SmartEdgeHMI.Data.Entities;
 
-public class SensorReadingEntity
+public class AlarmRecord
 {
     public long Id { get; set; }
     public string DeviceId { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
-    public Temperature Temperature { get; set; }
-    public Humidity Humidity { get; set; }
-    public DeviceStatus StatusCode { get; set; }
-    public ErrorCode ErrorCode { get; set; }
+    public string AlarmCode { get; set; } = string.Empty;
+    public double TriggerValue { get; set; }
     public DataQuality QualityCode { get; set; } = DataQuality.Good;
 }
