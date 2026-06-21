@@ -1,5 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
-using SmartEdgeHMI.Services;
+using SmartEdgeHMI.Communication;
+using SmartEdgeHMI.Communication.Ports;
+using SmartEdgeHMI.Communication.Protocols;
+using SmartEdgeHMI.Data.Repositories;
+using SmartEdgeHMI.State;
 using SmartEdgeHMI.ViewModels;
 using SmartEdgeHMI.Views;
 

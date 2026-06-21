@@ -3,10 +3,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
-using SmartEdgeHMI.Constants;
-using SmartEdgeHMI.Models.Enums;
+using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Communication.Ports;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.Services;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -105,11 +104,8 @@ public partial class ConnectionViewModel : ViewModelBase,
         {
             try
             {
-                Log.Information("正在连接串口 {Port}，波特率 {BaudRate}", SelectedPort, baud);
-
-                // 切到后台线程执行硬件打开动作
+                Log.Information("正在连接串口 {Port}, 波特率 {BaudRate}", SelectedPort, baud);
                 await Task.Run(() => _serialPortService.OpenPort(SelectedPort, baud));
-
                 Log.Information("串口 {Port} 连接成功", SelectedPort);
             }
             catch (Exception ex)

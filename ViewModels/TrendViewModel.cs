@@ -2,8 +2,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
+using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Data.Repositories;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.Services;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -33,7 +34,7 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
 
             var data = await telemetryRepo.GetTelemetryHistoryAsync(StartTime, EndTime, TargetPoints);
 
-            WeakReferenceMessenger.Default.Send(new TrendDataLoadedMessage(Constants.AppConstants.DefaultDeviceName, data));
+            WeakReferenceMessenger.Default.Send(new TrendDataLoadedMessage(AppConstants.DefaultDeviceName, data));
 
             Log.Information("历史趋势加载完成, 返回 {Count} 个数据点", data.Count);
         }
@@ -53,7 +54,6 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
     {
         if (!value)
         {
-            // 切回实时模式时发送空数据通知清理图表
             WeakReferenceMessenger.Default.Send(new TrendDataLoadedMessage(string.Empty, []));
         }
     }

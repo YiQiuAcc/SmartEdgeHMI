@@ -3,12 +3,13 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
-using SmartEdgeHMI.Constants;
-using SmartEdgeHMI.Models.DTOs;
-using SmartEdgeHMI.Models.Entities;
-using SmartEdgeHMI.Models.Enums;
+using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Communication;
+using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Data.Repositories;
+using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.Services;
+using SmartEdgeHMI.State;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -64,7 +65,6 @@ public partial class MonitorViewModel : ViewModelBase,
             _isInitializing = true;
             AlarmThreshold = threshold;
             _isInitializing = false;
-            Log.Information("已从配置文件加载阈值: {Threshold}°C", threshold);
         }
         catch (Exception ex)
         {
@@ -73,15 +73,17 @@ public partial class MonitorViewModel : ViewModelBase,
         }
     }
 
+    /// <summary>
+    /// 处理 JSON 协议上报的遥测报文：
+    /// 1) 更新设备状态容器 → 2) 持久化到 SQLite → 3) 报警状态机边缘触发判定
+    /// </summary>
     public void Receive(DeviceTelemetryMessage message)
     {
         var payload = message.Payload;
 
-        // 更新全局状态容器
         _deviceState.UpdateTelemetry(message.PortName, payload.Temperature,
             payload.Humidity, payload.StatusCode, payload.ErrorCode, payload.QualityCode);
 
-        // 持久化到 SQLite
         _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingEntity
         {
             DeviceId = payload.DeviceId,
@@ -93,7 +95,6 @@ public partial class MonitorViewModel : ViewModelBase,
             QualityCode = payload.QualityCode
         });
 
-        // 报警评估（业务逻辑不变）
         var alarmRecord = _alarmStateMachine.Evaluate(payload);
         if (alarmRecord is not null)
         {
@@ -104,13 +105,15 @@ public partial class MonitorViewModel : ViewModelBase,
         }
     }
 
+    /// <summary>
+    /// 处理 Modbus 协议解析后的遥测数据(与 DeviceTelemetryMessage 处理流程一致, 但因协议不同需要额外构造 TelemetryPayload
+    /// 以复用报警状态机接口)。
+    /// </summary>
     public void Receive(SensorReadingMessage message)
     {
-        // 更新全局状态容器
         _deviceState.UpdateTelemetry(message.PortName, message.Temperature,
             message.Humidity, message.StatusCode, message.ErrorCode, DataQuality.Good);
 
-        // 持久化到 SQLite
         _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingEntity
         {
             DeviceId = AppConstants.DefaultDeviceName,
@@ -122,7 +125,6 @@ public partial class MonitorViewModel : ViewModelBase,
             QualityCode = DataQuality.Good
         });
 
-        // 构造 TelemetryPayload 供报警状态机评估
         var payload = new TelemetryPayload
         {
             DeviceId = AppConstants.DefaultDeviceName,
@@ -143,6 +145,7 @@ public partial class MonitorViewModel : ViewModelBase,
         }
     }
 
+    /// <summary>处理设备连接状态变更：由设备状态容器统一管理连接状态, 连接建立时自动下发当前阈值到设备端。</summary>
     public void Receive(DeviceStateChangedMessage message)
     {
         _deviceState.UpdateConnectionState(message.PortName, message.State);
@@ -157,6 +160,7 @@ public partial class MonitorViewModel : ViewModelBase,
         _ = DebounceSaveThreshold(value);
     }
 
+    /// <summary>阈值变更防抖保存：取消上一次未完成的保存, 延迟指定毫秒后再执行。 防止滑块拖动时频繁触发配置文件 I/O。</summary>
     private async Task DebounceSaveThreshold(double value)
     {
         _saveThresholdCts?.Cancel();
@@ -168,28 +172,28 @@ public partial class MonitorViewModel : ViewModelBase,
         {
             await Task.Delay(AppConstants.SettingsSaveDebounceMs, token);
             await SaveThresholdAsync(value, CancellationToken.None);
-            Log.Information("报警阈值已持久化并下发: {Threshold}°C", value);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            Log.Error(ex, "配置防抖保存发生未预期故障");
+            Log.Error(ex, "阈值防抖保存失败");
         }
     }
 
+    /// <summary>设备连接建立后自动下发当前阈值(不防抖, 立即执行)</summary>
     private async Task SaveThresholdSafeAsync(double value)
     {
         try
         {
             await SaveThresholdAsync(value, CancellationToken.None);
-            Log.Information("设备连接后自动下发阈值配置: {Threshold}°C", value);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "自动下发阈值配置失败");
+            Log.Error(ex, "设备连接后自动下发阈值配置失败");
         }
     }
 
+    /// <summary>持久化阈值到本地文件并下发到所有已连接设备</summary>
     private async Task SaveThresholdAsync(double value, CancellationToken token)
     {
         _settingsService.Current.Hardware.DefaultThreshold = value;

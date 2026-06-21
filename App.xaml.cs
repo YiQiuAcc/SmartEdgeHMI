@@ -3,8 +3,9 @@ using System.Windows.Threading;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
+using SmartEdgeHMI.Data.Repositories;
 using SmartEdgeHMI.Extensions;
-using SmartEdgeHMI.Services;
+using SmartEdgeHMI.Infrastructure.Logging;
 using SmartEdgeHMI.Views;
 
 namespace SmartEdgeHMI;
@@ -36,8 +37,7 @@ public partial class App : Application
                 path: "logs/log-.txt",
                 fileSizeLimitBytes: 10 * 1024 * 1024,
                 rollingInterval: RollingInterval.Day,
-                rollOnFileSizeLimit: true
-,
+                rollOnFileSizeLimit: true,
                 retainedFileCountLimit: 31))
             .WriteTo.Sink(new WpfSerilogSink())
             .CreateLogger();

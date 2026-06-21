@@ -1,13 +1,9 @@
 using System.Text.Json.Serialization;
-using SmartEdgeHMI.Models.Enums;
+using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Models.ValueObjects;
 
-namespace SmartEdgeHMI.Models.DTOs;
+namespace SmartEdgeHMI.Models.Dtos;
 
-/// <summary>
-/// 硬件发给上位机的 JSON 数据报文
-/// 例如: {"deviceId":"Sensor_01","temperature":25.5,"humidity":45.0,"status":1}
-/// </summary>
 public class TelemetryPayload
 {
     [JsonPropertyName("deviceId")]

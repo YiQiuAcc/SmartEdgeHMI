@@ -11,7 +11,7 @@ public readonly record struct Humidity
     /// <summary>相对湿度百分比 (0-100)</summary>
     public double Percent { get; }
 
-    /// <summary>从 Modbus 原始寄存器值创建（寄存器值 / 10 = 百分比）</summary>
+    /// <summary>从 Modbus 原始寄存器值创建(寄存器值 / 10 = 百分比)</summary>
     public static Humidity FromRawModbus(int rawValue) => new(rawValue / 10.0);
 
     /// <summary>从百分比值创建</summary>

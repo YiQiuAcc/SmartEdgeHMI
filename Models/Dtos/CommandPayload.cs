@@ -1,9 +1,8 @@
 using System.Text.Json.Serialization;
-using SmartEdgeHMI.Models.Enums;
+using SmartEdgeHMI.Common;
 
-namespace SmartEdgeHMI.Models.DTOs;
+namespace SmartEdgeHMI.Models.Dtos;
 
-/// <summary>上位机下发给硬件的 JSON 控制报文</summary>
 public record CommandPayload(
     [property: JsonPropertyName("cmd_id")] Guid CommandId,
     [property: JsonPropertyName("deviceId")] string DeviceId,

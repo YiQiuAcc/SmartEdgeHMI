@@ -1,4 +1,4 @@
-using SmartEdgeHMI.Models.Enums;
+using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Models.ValueObjects;
 
 namespace SmartEdgeHMI.Models.Messages;

@@ -1,6 +1,6 @@
 namespace SmartEdgeHMI.Models.Messages;
 
-/// <summary>物理层收包事件：承载串口原始字节流，供协议层消费</summary>
+/// <summary>物理层收包事件：承载串口原始字节流, 供协议层消费</summary>
 public class RawDataReceivedMessage(string portName, byte[] data)
 {
     public string PortName { get; } = portName;

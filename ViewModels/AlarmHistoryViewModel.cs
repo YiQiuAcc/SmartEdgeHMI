@@ -3,11 +3,11 @@ using System.Windows.Data;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
-using SmartEdgeHMI.Constants;
-using SmartEdgeHMI.Models;
-using SmartEdgeHMI.Models.Entities;
+using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Data.Repositories;
+using SmartEdgeHMI.Infrastructure.UI;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.Services;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -39,7 +39,6 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
                 AlarmRecords.RemoveAt(0);
         });
 
-        // 异步落盘与异常捕获
         _ = SaveAlarmToDbAsync(message.Record);
     }
 

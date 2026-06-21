@@ -11,7 +11,7 @@ public readonly record struct Temperature
     /// <summary>摄氏度</summary>
     public double Celsius { get; }
 
-    /// <summary>从 Modbus 原始寄存器值创建（寄存器值 / 10 = 摄氏度）</summary>
+    /// <summary>从 Modbus 原始寄存器值创建(寄存器值 / 10 = 摄氏度)</summary>
     public static Temperature FromRawModbus(int rawValue) => new(rawValue / 10.0);
 
     /// <summary>从摄氏度值创建</summary>

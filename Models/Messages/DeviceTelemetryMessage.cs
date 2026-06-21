@@ -1,4 +1,4 @@
-using SmartEdgeHMI.Models.DTOs;
+using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.Models.Messages;
 
