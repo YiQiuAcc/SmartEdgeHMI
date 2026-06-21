@@ -55,10 +55,10 @@ public partial class MainWindow : Window,
     }
 
     public void Receive(DeviceTelemetryMessage message)
-        => AddTemperature(message.PortName, message.Payload.Temperature);
+        => AddTemperature(message.PortName, message.Payload.Temperature.Celsius);
 
     public void Receive(SensorReadingMessage message)
-        => AddTemperature(message.PortName, message.Temperature);
+        => AddTemperature(message.PortName, message.Temperature.Celsius);
 
     public void Receive(TrendDataLoadedMessage message)
     {
@@ -83,7 +83,7 @@ public partial class MainWindow : Window,
             _loggers.Clear();
 
             var xs = message.Data.Select(d => d.Timestamp.ToOADate()).ToArray();
-            var ys = message.Data.Select(d => d.Temperature).ToArray();
+            var ys = message.Data.Select(d => d.Temperature.Celsius).ToArray();
             var scatter = DataPlot.Plot.Add.Scatter(xs, ys);
             scatter.LineWidth = 2;
             scatter.Color = Colors.Cyan;

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.Models.ValueObjects;
 
 namespace SmartEdgeHMI.Services;
 
@@ -8,8 +9,8 @@ namespace SmartEdgeHMI.Services;
 public interface IDeviceStateContainer : INotifyPropertyChanged
 {
     // ===== 最新遥测摘要 =====
-    double LatestTemperature { get; }
-    double LatestHumidity { get; }
+    Temperature LatestTemperature { get; }
+    Humidity LatestHumidity { get; }
     DeviceStatus LatestDeviceStatus { get; }
     ErrorCode LatestErrorCode { get; }
     DataQuality LatestQuality { get; }
@@ -28,7 +29,7 @@ public interface IDeviceStateContainer : INotifyPropertyChanged
     IReadOnlySet<string> ConnectedPorts { get; }
 
     // ===== 由基础设施调用（MonitorViewModel / 物理层） =====
-    void UpdateTelemetry(string portName, double temperature, double humidity,
+    void UpdateTelemetry(string portName, Temperature temperature, Humidity humidity,
         DeviceStatus status, ErrorCode error, DataQuality quality);
 
     void UpdateConnectionState(string portName, ConnectionState state);

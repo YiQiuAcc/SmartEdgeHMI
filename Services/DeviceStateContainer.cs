@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.Models.ValueObjects;
 
 namespace SmartEdgeHMI.Services;
 
@@ -19,8 +20,8 @@ public class DeviceStateContainer : IDeviceStateContainer
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     // ===== 最新遥测摘要（取最后一次更新的端口） =====
-    public double LatestTemperature { get; private set; } = 25.0;
-    public double LatestHumidity { get; private set; }
+    public Temperature LatestTemperature { get; private set; } = Temperature.FromCelsius(25.0);
+    public Humidity LatestHumidity { get; private set; }
     public DeviceStatus LatestDeviceStatus { get; private set; } = DeviceStatus.Online;
     public ErrorCode LatestErrorCode { get; private set; }
     public DataQuality LatestQuality { get; private set; } = DataQuality.Good;
@@ -52,7 +53,7 @@ public class DeviceStateContainer : IDeviceStateContainer
 
     // ===== 更新方法（由 MonitorViewModel / 物理层调用） =====
 
-    public void UpdateTelemetry(string portName, double temperature, double humidity,
+    public void UpdateTelemetry(string portName, Temperature temperature, Humidity humidity,
         DeviceStatus status, ErrorCode error, DataQuality quality)
     {
         var snapshot = new DeviceStateSnapshot(portName, temperature, humidity,

@@ -72,7 +72,7 @@ public class AlarmStateMachine : IAlarmStateMachine
         DeviceId = payload.DeviceId,
         Timestamp = DateTime.Now,
         AlarmCode = payload.ErrorCode.ToString(),
-        TriggerValue = payload.Temperature,
+        TriggerValue = payload.Temperature.Celsius,
         QualityCode = payload.QualityCode
     };
 }

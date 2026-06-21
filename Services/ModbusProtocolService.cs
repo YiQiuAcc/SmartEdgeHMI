@@ -8,6 +8,7 @@ using Serilog;
 using SmartEdgeHMI.Constants;
 using SmartEdgeHMI.Models.Enums;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.Models.ValueObjects;
 using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Services;
@@ -334,8 +335,8 @@ public class ModbusProtocolService : IProtocolParser
         short rawTemp = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(0, 2));
         short rawHum = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(2, 2));
 
-        float actualTemperature = rawTemp / 10f;
-        float actualHumidity = rawHum / 10f;
+        var actualTemperature = Temperature.FromRawModbus(rawTemp);
+        var actualHumidity = Humidity.FromRawModbus(rawHum);
 
         var statusCode = DeviceStatus.Online;
         var errorCode = ErrorCode.NoError;

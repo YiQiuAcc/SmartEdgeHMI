@@ -39,7 +39,7 @@ public static class LttbDownsampler
                 for (int i = nextBucketStart; i < nextBucketEnd; i++)
                 {
                     avgX += data[i].Timestamp.Ticks;
-                    avgY += data[i].Temperature;
+                    avgY += data[i].Temperature.Celsius;
                 }
                 avgX /= avgCount;
                 avgY /= avgCount;
@@ -48,7 +48,7 @@ public static class LttbDownsampler
             {
                 var last = data[data.Count - 1];
                 avgX = last.Timestamp.Ticks;
-                avgY = last.Temperature;
+                avgY = last.Temperature.Celsius;
             }
 
             double maxArea = -1;
@@ -57,8 +57,8 @@ public static class LttbDownsampler
             for (int i = bucketStart; i < bucketEnd; i++)
             {
                 double area = TriangleArea(
-                    prev.Timestamp.Ticks, prev.Temperature,
-                    data[i].Timestamp.Ticks, data[i].Temperature,
+                    prev.Timestamp.Ticks, prev.Temperature.Celsius,
+                    data[i].Timestamp.Ticks, data[i].Temperature.Celsius,
                     avgX, avgY);
 
                 if (area > maxArea)

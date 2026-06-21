@@ -26,8 +26,7 @@ public partial class MonitorViewModel : ViewModelBase,
     private CancellationTokenSource? _saveThresholdCts;
     private bool _isInitializing;
 
-    /// <summary>代理到 StateContainer — 保持 XAML 绑定兼容</summary>
-    public double CurrentTemperature => _deviceState.LatestTemperature;
+    public double CurrentTemperature => _deviceState.LatestTemperature.Celsius;
 
     [ObservableProperty]
     private double _alarmThreshold = 50.0;

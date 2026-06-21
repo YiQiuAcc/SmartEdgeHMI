@@ -10,6 +10,7 @@ using SmartEdgeHMI.Models;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Entities;
 using SmartEdgeHMI.Models.Enums;
+using SmartEdgeHMI.Models.ValueObjects;
 
 namespace SmartEdgeHMI.Services;
 
@@ -31,6 +32,8 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
     static SqliteRepository()
     {
         SqlMapper.AddTypeHandler(new DataQualityTypeHandler());
+        SqlMapper.AddTypeHandler(new TemperatureTypeHandler());
+        SqlMapper.AddTypeHandler(new HumidityTypeHandler());
     }
 
     public SqliteRepository(IConfiguration config)
@@ -373,6 +376,28 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         {
             parameter.DbType = DbType.Int32;
             parameter.Value = (int)value;
+        }
+    }
+
+    private sealed class TemperatureTypeHandler : SqlMapper.TypeHandler<Temperature>
+    {
+        public override Temperature Parse(object value) => Temperature.FromCelsius(Convert.ToDouble(value));
+
+        public override void SetValue(IDbDataParameter parameter, Temperature value)
+        {
+            parameter.DbType = DbType.Double;
+            parameter.Value = value.Celsius;
+        }
+    }
+
+    private sealed class HumidityTypeHandler : SqlMapper.TypeHandler<Humidity>
+    {
+        public override Humidity Parse(object value) => Humidity.FromPercent(Convert.ToDouble(value));
+
+        public override void SetValue(IDbDataParameter parameter, Humidity value)
+        {
+            parameter.DbType = DbType.Double;
+            parameter.Value = value.Percent;
         }
     }
 }

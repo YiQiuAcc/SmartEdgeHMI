@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using SmartEdgeHMI.Models.Enums;
+using SmartEdgeHMI.Models.ValueObjects;
 
 namespace SmartEdgeHMI.Models.DTOs;
 
@@ -13,10 +14,10 @@ public class TelemetryPayload
     public string DeviceId { get; init; } = string.Empty;
 
     [JsonPropertyName("temperature")]
-    public double Temperature { get; init; }
+    public Temperature Temperature { get; init; }
 
     [JsonPropertyName("humidity")]
-    public double Humidity { get; init; }
+    public Humidity Humidity { get; init; }
 
     [JsonPropertyName("count")]
     public long OutputCount { get; init; }
