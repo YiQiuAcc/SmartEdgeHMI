@@ -6,5 +6,7 @@ public interface IAlarmRepository
 {
     Task<List<AlarmRecord>> GetAlarmHistoryAsync(AlarmHistoryFilter? filter = null);
 
-    Task SaveAlarmRecordAsync(AlarmRecord alarmRecord);
+    Task<long> SaveAlarmRecordAsync(AlarmRecord alarmRecord);
+
+    Task UpdateAlarmStatesAsync(IEnumerable<AlarmRecord> alarms);
 }

@@ -22,6 +22,7 @@ public partial class MonitorViewModel : ViewModelBase,
     private readonly IDeviceCommunicationCoordinator _coordinator;
     private readonly IAlarmStateMachine _alarmStateMachine;
     private readonly ITelemetryRepository _telemetryRepo;
+    private readonly IAlarmRepository _alarmRepo;
     private readonly IDeviceStateContainer _deviceState;
 
     private CancellationTokenSource? _saveThresholdCts;
@@ -32,20 +33,26 @@ public partial class MonitorViewModel : ViewModelBase,
     [ObservableProperty]
     private double _alarmThreshold = 50.0;
 
+    [ObservableProperty]
+    private bool _hasPendingAlarms;
+
     public MonitorViewModel(
         ISettingsService settingsService,
         IDeviceCommunicationCoordinator coordinator,
         IAlarmStateMachine alarmStateMachine,
         ITelemetryRepository telemetryRepo,
+        IAlarmRepository alarmRepo,
         IDeviceStateContainer deviceState)
     {
         _settingsService = settingsService;
         _coordinator = coordinator;
         _alarmStateMachine = alarmStateMachine;
         _telemetryRepo = telemetryRepo;
+        _alarmRepo = alarmRepo;
         _deviceState = deviceState;
 
         _deviceState.PropertyChanged += OnDeviceStateChanged;
+        _alarmStateMachine.AlarmStatesChanged += OnAlarmStatesChanged;
 
         WeakReferenceMessenger.Default.RegisterAll(this);
         LoadSavedThreshold();
@@ -55,6 +62,25 @@ public partial class MonitorViewModel : ViewModelBase,
     {
         if (e.PropertyName == nameof(IDeviceStateContainer.LatestTemperature))
             OnPropertyChanged(nameof(CurrentTemperature));
+    }
+
+    private void OnAlarmStatesChanged()
+    {
+        HasPendingAlarms = _alarmStateMachine.PendingAlarms.Count > 0;
+        _deviceState.UpdateActiveAlarms(_alarmStateMachine.ActiveAlarms);
+        _ = SyncAlarmStatesToDbAsync();
+    }
+
+    private async Task SyncAlarmStatesToDbAsync()
+    {
+        try
+        {
+            await _alarmRepo.UpdateAlarmStatesAsync(_alarmStateMachine.PendingAlarms);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "同步报警状态到数据库失败");
+        }
     }
 
     private void LoadSavedThreshold()
@@ -73,10 +99,22 @@ public partial class MonitorViewModel : ViewModelBase,
         }
     }
 
-    /// <summary>
-    /// 处理 JSON 协议上报的遥测报文：
-    /// 1) 更新设备状态容器 → 2) 持久化到 SQLite → 3) 报警状态机边缘触发判定
-    /// </summary>
+    private async Task<long> HandleNewAlarmAsync(AlarmRecord alarmRecord)
+    {
+        _deviceState.UpdateActiveAlarms(_alarmStateMachine.ActiveAlarms);
+
+        long id = await _alarmRepo.SaveAlarmRecordAsync(alarmRecord);
+        alarmRecord.Id = id;
+
+        WeakReferenceMessenger.Default.Send(new AlarmRecorded(alarmRecord));
+        HasPendingAlarms = true;
+
+        Log.Warning("报警触发: {DeviceId}, 错误码: {AlarmCode}, Id: {Id}, 触发值: {Value}",
+            alarmRecord.DeviceId, alarmRecord.AlarmCode, id, alarmRecord.TriggerValue);
+
+        return id;
+    }
+
     public void Receive(DeviceTelemetry message)
     {
         var payload = message.Payload;
@@ -97,18 +135,9 @@ public partial class MonitorViewModel : ViewModelBase,
 
         var alarmRecord = _alarmStateMachine.Evaluate(payload);
         if (alarmRecord is not null)
-        {
-            _deviceState.UpdateActiveAlarms(_alarmStateMachine.ActiveAlarms);
-            WeakReferenceMessenger.Default.Send(new AlarmRecorded(alarmRecord));
-            Log.Warning("报警触发: {DeviceId}, 错误码: {ErrorCode}, 触发值: {Value}",
-                alarmRecord.DeviceId, alarmRecord.AlarmCode, alarmRecord.TriggerValue);
-        }
+            _ = HandleNewAlarmAsync(alarmRecord);
     }
 
-    /// <summary>
-    /// 处理 Modbus 协议解析后的遥测数据(与 DeviceTelemetry 处理流程一致, 但因协议不同需要额外构造 TelemetryPayload
-    /// 以复用报警状态机接口)。
-    /// </summary>
     public void Receive(SensorReading message)
     {
         _deviceState.UpdateTelemetry(message.PortName, message.Temperature,
@@ -137,15 +166,9 @@ public partial class MonitorViewModel : ViewModelBase,
 
         var alarmRecord = _alarmStateMachine.Evaluate(payload);
         if (alarmRecord is not null)
-        {
-            _deviceState.UpdateActiveAlarms(_alarmStateMachine.ActiveAlarms);
-            WeakReferenceMessenger.Default.Send(new AlarmRecorded(alarmRecord));
-            Log.Warning("报警触发: {DeviceId}, 错误码: {ErrorCode}, 触发值: {Value}",
-                alarmRecord.DeviceId, alarmRecord.AlarmCode, alarmRecord.TriggerValue);
-        }
+            _ = HandleNewAlarmAsync(alarmRecord);
     }
 
-    /// <summary>处理设备连接状态变更：由设备状态容器统一管理连接状态, 连接建立时自动下发当前阈值到设备端。</summary>
     public void Receive(DeviceStateChanged message)
     {
         _deviceState.UpdateConnectionState(message.PortName, message.State);
@@ -154,13 +177,12 @@ public partial class MonitorViewModel : ViewModelBase,
             _ = SaveThresholdSafeAsync(AlarmThreshold);
     }
 
-    partial void OnAlarmThresholdChanged(double value)
+    private partial void OnAlarmThresholdChanged(double value)
     {
         if (_isInitializing) return;
         _ = DebounceSaveThreshold(value);
     }
 
-    /// <summary>阈值变更防抖保存：取消上一次未完成的保存, 延迟指定毫秒后再执行。 防止滑块拖动时频繁触发配置文件 I/O。</summary>
     private async Task DebounceSaveThreshold(double value)
     {
         _saveThresholdCts?.Cancel();
@@ -180,7 +202,6 @@ public partial class MonitorViewModel : ViewModelBase,
         }
     }
 
-    /// <summary>设备连接建立后自动下发当前阈值(不防抖, 立即执行)</summary>
     private async Task SaveThresholdSafeAsync(double value)
     {
         try
@@ -193,12 +214,17 @@ public partial class MonitorViewModel : ViewModelBase,
         }
     }
 
-    /// <summary>持久化阈值到本地文件并下发到所有已连接设备</summary>
     private async Task SaveThresholdAsync(double value, CancellationToken token)
     {
         _settingsService.Current.Hardware.DefaultThreshold = value;
         await _settingsService.SaveAsync(token);
         await _coordinator.SendThresholdAsync(value);
+    }
+
+    [RelayCommand]
+    private void AcknowledgeAllAlarms()
+    {
+        _alarmStateMachine.AcknowledgeAll();
     }
 
     [RelayCommand]

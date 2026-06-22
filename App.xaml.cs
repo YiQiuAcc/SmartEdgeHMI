@@ -123,7 +123,12 @@ public partial class App : Application
     {
         try
         {
-            Log.Information($"SmartEdgeHMI 应用程序正常退出。退出码: {e.ApplicationExitCode}");
+            Log.Information("SmartEdgeHMI 应用程序正在退出。退出码: {Code}", e.ApplicationExitCode);
+            var repo = ServiceProvider.GetService<SqliteRepository>();
+            if (repo is not null)
+            {
+                Task.Run(() => repo.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
+            }
         }
         finally
         {

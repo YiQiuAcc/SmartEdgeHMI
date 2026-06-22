@@ -8,6 +8,7 @@ using SmartEdgeHMI.Data.Entities;
 using SmartEdgeHMI.Data.Repositories;
 using SmartEdgeHMI.Infrastructure.UI;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.State;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -15,19 +16,29 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
     IRecipient<AlarmRecorded>
 {
     private readonly IAlarmRepository _alarmRepo;
+    private readonly IAlarmStateMachine _alarmStateMachine;
 
     public BulkObservableCollection<AlarmRecord> AlarmRecords { get; } = [];
 
-    public AlarmHistoryViewModel(IAlarmRepository alarmRepo)
+    public AlarmHistoryViewModel(IAlarmRepository alarmRepo, IAlarmStateMachine alarmStateMachine)
     {
         _alarmRepo = alarmRepo;
+        _alarmStateMachine = alarmStateMachine;
+
         EnableCollectionSynchronization(AlarmRecords);
 
         var view = CollectionViewSource.GetDefaultView(AlarmRecords);
         view.SortDescriptions.Add(new SortDescription(nameof(AlarmRecord.Timestamp), ListSortDirection.Descending));
 
+        _alarmStateMachine.AlarmStatesChanged += OnAlarmStatesChanged;
+
         WeakReferenceMessenger.Default.RegisterAll(this);
         _ = LoadAlarmHistorySafeAsync();
+    }
+
+    private void OnAlarmStatesChanged()
+    {
+        DispatchToUI(() => CollectionViewSource.GetDefaultView(AlarmRecords).Refresh());
     }
 
     public void Receive(AlarmRecorded message)
@@ -38,20 +49,23 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
             if (AlarmRecords.Count > AppConstants.MaxLogEntries)
                 AlarmRecords.RemoveAt(0);
         });
-
-        _ = SaveAlarmToDbAsync(message.Record);
     }
 
-    private async Task SaveAlarmToDbAsync(AlarmRecord record)
+    [RelayCommand]
+    private void AcknowledgeAlarm(long alarmId)
     {
-        try
+        _alarmStateMachine.Acknowledge(alarmId);
+    }
+
+    [RelayCommand]
+    private async Task LoadAlarmHistoryAsync()
+    {
+        var data = await _alarmRepo.GetAlarmHistoryAsync();
+        DispatchToUI(() =>
         {
-            await _alarmRepo.SaveAlarmRecordAsync(record);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "报警数据本地落盘失败");
-        }
+            AlarmRecords.Clear();
+            AlarmRecords.AddRange(data);
+        });
     }
 
     private async Task LoadAlarmHistorySafeAsync()
@@ -64,16 +78,5 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
         {
             Log.Error(ex, "启动时加载历史报警记录失败");
         }
-    }
-
-    [RelayCommand]
-    private async Task LoadAlarmHistoryAsync()
-    {
-        var data = await _alarmRepo.GetAlarmHistoryAsync();
-        DispatchToUI(() =>
-        {
-            AlarmRecords.Clear();
-            AlarmRecords.AddRange(data);
-        });
     }
 }

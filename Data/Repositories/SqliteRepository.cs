@@ -107,20 +107,43 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         }
     }
 
-    public async Task SaveAlarmRecordAsync(AlarmRecord alarmRecord)
+    public async Task<long> SaveAlarmRecordAsync(AlarmRecord alarmRecord)
     {
         try
         {
             await using var connection = await CreateConnectionAsync();
 
-            await connection.ExecuteAsync("""
-                INSERT INTO AlarmHistory (DeviceId, Timestamp, AlarmCode, TriggerValue, QualityCode)
-                VALUES (@DeviceId, @Timestamp, @AlarmCode, @TriggerValue, @QualityCode)
+            return await connection.ExecuteScalarAsync<long>("""
+                INSERT INTO AlarmHistory (DeviceId, Timestamp, AlarmCode, TriggerValue, QualityCode, State)
+                VALUES (@DeviceId, @Timestamp, @AlarmCode, @TriggerValue, @QualityCode, @State);
+                SELECT last_insert_rowid();
                 """, alarmRecord);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "保存报警记录失败");
+            return 0;
+        }
+    }
+
+    public async Task UpdateAlarmStatesAsync(IEnumerable<AlarmRecord> alarms)
+    {
+        try
+        {
+            await using var connection = await CreateConnectionAsync();
+            using var transaction = connection.BeginTransaction();
+
+            await connection.ExecuteAsync("""
+                UPDATE AlarmHistory
+                SET State = @State, AcknowledgedAt = @AcknowledgedAt, ClearedAt = @ClearedAt
+                WHERE Id = @Id
+                """, alarms, transaction: transaction);
+
+            transaction.Commit();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "批量更新报警状态失败");
         }
     }
 
@@ -192,6 +215,9 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         {
             await using var connection = await CreateConnectionAsync();
 
+            // DatePicker 只选日期不带时间(00:00:00), 调整为当天最后一刻以包含全天数据
+            DateTime toInclusive = to.Date.Equals(to) ? to.Date.AddDays(1).AddTicks(-1) : to;
+
             string sql = """
             SELECT * FROM TelemetryHistory
             WHERE Timestamp >= @From AND Timestamp <= @To
@@ -199,7 +225,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
             """;
 
             var rawData = (await connection.QueryAsync<SensorReadingRecord>(sql,
-                new { From = from, To = to })).AsList();
+                new { From = from, To = toInclusive })).AsList();
 
             if (rawData.Count <= targetPoints)
                 return rawData;
@@ -296,7 +322,10 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
                     Timestamp TEXT NOT NULL,
                     AlarmCode TEXT NOT NULL,
                     TriggerValue REAL NOT NULL DEFAULT 0,
-                    QualityCode INTEGER NOT NULL DEFAULT 0
+                    QualityCode INTEGER NOT NULL DEFAULT 0,
+                    State INTEGER NOT NULL DEFAULT 0,
+                    AcknowledgedAt TEXT,
+                    ClearedAt TEXT
                 )
                 """);
 
@@ -341,6 +370,15 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
 
         if (!columnNames.Contains("QualityCode"))
             await connection.ExecuteAsync("ALTER TABLE AlarmHistory ADD COLUMN QualityCode INTEGER NOT NULL DEFAULT 0");
+
+        if (!columnNames.Contains("State"))
+            await connection.ExecuteAsync("ALTER TABLE AlarmHistory ADD COLUMN State INTEGER NOT NULL DEFAULT 0");
+
+        if (!columnNames.Contains("AcknowledgedAt"))
+            await connection.ExecuteAsync("ALTER TABLE AlarmHistory ADD COLUMN AcknowledgedAt TEXT");
+
+        if (!columnNames.Contains("ClearedAt"))
+            await connection.ExecuteAsync("ALTER TABLE AlarmHistory ADD COLUMN ClearedAt TEXT");
     }
 
     public async ValueTask DisposeAsync()

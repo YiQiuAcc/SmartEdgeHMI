@@ -10,4 +10,7 @@ public class AlarmRecord
     public string AlarmCode { get; set; } = string.Empty;
     public double TriggerValue { get; set; }
     public DataQuality QualityCode { get; set; } = DataQuality.Good;
+    public AlarmState State { get; set; } = AlarmState.UNACK;
+    public DateTime? AcknowledgedAt { get; set; }
+    public DateTime? ClearedAt { get; set; }
 }

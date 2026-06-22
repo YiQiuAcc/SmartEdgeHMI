@@ -44,6 +44,14 @@ public enum CommunicationProtocol : byte
     Modbus = 1
 }
 
+public enum AlarmState : byte
+{
+    UNACK = 0,
+    ACK = 1,
+    RTN_UNACK = 2,
+    NORMAL = 3
+}
+
 public enum ModbusFunctionCode : byte
 {
     ReadCoils = 1,
