@@ -1,0 +1,41 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:system="clr-namespace:System;assembly=System.Runtime">
+
+    <!--  Connection Panel  -->
+    <system:String x:Key="Str_Port">Port:</system:String>
+    <system:String x:Key="Str_BaudRate">Baud Rate:</system:String>
+    <system:String x:Key="Str_Protocol">Protocol:</system:String>
+    <system:String x:Key="Str_Connect">Connect</system:String>
+    <system:String x:Key="Str_Disconnect">Disconnect</system:String>
+    <system:String x:Key="Str_NotConnected">Not Connected</system:String>
+    <system:String x:Key="Str_LanguageToggle">中文</system:String>
+    <system:String x:Key="Str_ConnectedTo">Connected</system:String>
+    <system:String x:Key="Str_ConnectedMulti">Connected {0} Ports</system:String>
+
+    <!--  Trend Chart  -->
+    <system:String x:Key="Str_HistoryMode">History Mode</system:String>
+    <system:String x:Key="Str_LiveMode">Live Mode</system:String>
+    <system:String x:Key="Str_Start">Start:</system:String>
+    <system:String x:Key="Str_End">End:</system:String>
+    <system:String x:Key="Str_Points">Points:</system:String>
+    <system:String x:Key="Str_Load">Load</system:String>
+
+    <!--  Alarms  -->
+    <system:String x:Key="Str_AlarmView">Alarms</system:String>
+    <system:String x:Key="Str_SystemLog">System Log</system:String>
+    <system:String x:Key="Str_AcknowledgeAll">Acknowledge All</system:String>
+    <system:String x:Key="Str_Acknowledge">Ack</system:String>
+    <system:String x:Key="Str_Time">Time</system:String>
+    <system:String x:Key="Str_DeviceId">Device ID</system:String>
+    <system:String x:Key="Str_AlarmCode">Alarm Code</system:String>
+    <system:String x:Key="Str_Status">Status</system:String>
+    <system:String x:Key="Str_Action">Action</system:String>
+
+    <!--  Threshold  -->
+    <system:String x:Key="Str_Threshold">Temperature Alarm Threshold</system:String>
+    <system:String x:Key="Str_SetValue">Set:</system:String>
+    <system:String x:Key="Str_CurrentValue">Current:</system:String>
+    <system:String x:Key="Str_ResetDevice">⚠️ Emergency Reset</system:String>
+</ResourceDictionary>
