@@ -14,8 +14,8 @@ using SmartEdgeHMI.Models.ValueObjects;
 namespace SmartEdgeHMI.Data.Repositories;
 
 /// <summary>
-/// SQLite 持久化仓储: 实现 IAlarmRepository (报警写入) 和 ITelemetryRepository (遥测批量写入)。
-/// 遥测写入采用双缓冲 Channel 模型, 采集线程仅入队, 后台消费者按批次/时间两维条件合并刷盘。
+/// SQLite 持久化仓储: 实现 IAlarmRepository (报警写入) 和 ITelemetryRepository (遥测批量写入)。 遥测写入采用双缓冲 Channel 模型,
+/// 采集线程仅入队, 后台消费者按批次/时间两维条件合并刷盘。
 /// </summary>
 public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, IAsyncDisposable
 {
@@ -34,8 +34,8 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
 
     static SqliteRepository()
     {
-        // 注册 Dapper 自定义类型处理器
-        // 使 Value Object(Temperature/Humidity/DataQuality) 能与 SQLite 的REAL/INTEGER 列自动转换
+        // 注册 Dapper 自定义类型处理器 使 Value Object(Temperature/Humidity/DataQuality) 能与 SQLite
+        // 的REAL/INTEGER 列自动转换
         SqlMapper.AddTypeHandler(new DataQualityTypeHandler());
         SqlMapper.AddTypeHandler(new TemperatureTypeHandler());
         SqlMapper.AddTypeHandler(new HumidityTypeHandler());
@@ -386,12 +386,22 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         if (_disposed) return;
         _disposed = true;
 
+        // 通知 Channel 不再接收新数据并触发取消令牌
         _telemetryChannel.Writer.Complete();
         await _telemetryCts.CancelAsync();
+        try
+        {
+            // 等待后台任务完成刷盘
+            await _telemetryConsumerTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (OperationCanceledException) { }
+        catch (TimeoutException) { }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "[SqliteRepository] 遥测消费任务在停止时抛出异常");
+        }
 
-        try { await _telemetryConsumerTask.WaitAsync(TimeSpan.FromSeconds(5)); }
-        catch (Exception) { }
-
+        // 释放令牌资源
         _telemetryCts.Dispose();
     }
 

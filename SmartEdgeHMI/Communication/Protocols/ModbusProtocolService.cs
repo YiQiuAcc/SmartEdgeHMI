@@ -10,28 +10,27 @@ using SmartEdgeHMI.Communication.Ports;
 using SmartEdgeHMI.Communication.Protocols.Utils;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.Models.ValueObjects;
-using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Communication.Protocols;
 
 public class ModbusProtocolService : IProtocolParser
 {
     private readonly ISerialPortService _serialPortService;
-    private readonly ConnectionViewModel _connectionVm;
+    private readonly IProtocolConfig _protocolConfig;
     private readonly ConcurrentDictionary<string, PortPipeState> _pipes = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _pollingTokens = new();
 
-    private const int PollingIntervalMs = 1000;
-    private const ushort PollStartAddress = 0;
-    private const ushort PollRegisterCount = 4;
+    // Modbus 寄存器地址定义
+    public const ushort RegisterReset = 0x0001;
+    public const ushort RegisterThreshold = 0x0002;
 
     public string Key => "Modbus";
 
-    public ModbusProtocolService(ISerialPortService serialPortService, ConnectionViewModel connectionVm)
+    public ModbusProtocolService(ISerialPortService serialPortService, IProtocolConfig protocolConfig)
     {
         _serialPortService = serialPortService;
-        _connectionVm = connectionVm;
-        _connectionVm.PropertyChanged += OnConnectionViewModelPropertyChanged;
+        _protocolConfig = protocolConfig;
+        _protocolConfig.PropertyChanged += OnProtocolConfigChanged;
     }
 
     public static ushort CalcCRC16(ReadOnlySpan<byte> data)
@@ -76,7 +75,7 @@ public class ModbusProtocolService : IProtocolParser
     public Task ReadHoldingRegistersAsync(string portName, byte slaveAddress, ushort startAddress, ushort quantity)
     {
         Span<byte> data = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt16BigEndian(data.Slice(0, 2), startAddress);
+        BinaryPrimitives.WriteUInt16BigEndian(data[..2], startAddress);
         BinaryPrimitives.WriteUInt16BigEndian(data.Slice(2, 2), quantity);
 
         return SendModbusCommandAsync(portName, slaveAddress, (byte)ModbusFunctionCode.ReadHoldingRegisters, data);
@@ -85,13 +84,13 @@ public class ModbusProtocolService : IProtocolParser
     public Task WriteSingleRegisterAsync(string portName, byte slaveAddress, ushort registerAddress, ushort value)
     {
         Span<byte> data = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt16BigEndian(data.Slice(0, 2), registerAddress);
+        BinaryPrimitives.WriteUInt16BigEndian(data[..2], registerAddress);
         BinaryPrimitives.WriteUInt16BigEndian(data.Slice(2, 2), value);
 
         return SendModbusCommandAsync(portName, slaveAddress, (byte)ModbusFunctionCode.WriteSingleRegister, data);
     }
 
-    public void OnDataReceived(string portName, ReadOnlySpan<byte> data)
+    public async ValueTask OnDataReceivedAsync(string portName, ReadOnlyMemory<byte> data)
     {
         if (data.Length == 0) return;
 
@@ -102,11 +101,8 @@ public class ModbusProtocolService : IProtocolParser
             return s;
         });
 
-        try
-        {
-            state.Pipe.Writer.WriteAsync(data.ToArray()).GetAwaiter().GetResult();
-        }
-        catch (InvalidOperationException) { }
+        // 异步写入 Pipe，不再 .GetAwaiter().GetResult()
+        await state.Pipe.Writer.WriteAsync(data).ConfigureAwait(false);
     }
 
     public void OnDeviceStateChanged(string portName, ConnectionState state)
@@ -114,7 +110,7 @@ public class ModbusProtocolService : IProtocolParser
         switch (state)
         {
             case ConnectionState.Connected:
-                if (_connectionVm.SelectedProtocol == CommunicationProtocol.Modbus)
+                if (_protocolConfig.SelectedProtocol == CommunicationProtocol.Modbus)
                     StartPolling(portName);
                 break;
             case ConnectionState.Disconnected:
@@ -125,15 +121,15 @@ public class ModbusProtocolService : IProtocolParser
         }
     }
 
-    private void OnConnectionViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnProtocolConfigChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName != nameof(ConnectionViewModel.SelectedProtocol)) return;
+        if (e.PropertyName != nameof(IProtocolConfig.SelectedProtocol)) return;
 
-        if (_connectionVm.SelectedProtocol == CommunicationProtocol.Modbus)
+        if (_protocolConfig.SelectedProtocol == CommunicationProtocol.Modbus)
         {
-            foreach (string portName in _connectionVm.ConnectedPorts)
+            foreach (string portName in _protocolConfig.ConnectedPorts)
                 StartPolling(portName);
-            Log.Information("[Modbus] 协议已切换至Modbus模式, 已启动所有已连接端口的轮询");
+            Log.Information("[Modbus] 协议已切换至Modbus模式，已启动所有已连接端口的轮询");
         }
         else
         {
@@ -141,7 +137,7 @@ public class ModbusProtocolService : IProtocolParser
                 StopPolling(portName);
             foreach (string portName in _pipes.Keys.ToList())
                 CleanupPipe(portName);
-            Log.Information("[Modbus] 协议已切换至非Modbus模式, 已停止所有轮询并清理管道");
+            Log.Information("[Modbus] 协议已切换至非Modbus模式，已停止所有轮询并清理管道");
         }
     }
 
@@ -155,7 +151,7 @@ public class ModbusProtocolService : IProtocolParser
         }
 
         _ = Task.Run(() => PollLoopAsync(portName, cts.Token), cts.Token);
-        Log.Information("[Modbus] 已启动 {Port} 的轮询任务 (间隔 {Interval}ms)", portName, PollingIntervalMs);
+        Log.Information("[Modbus] 已启动 {Port} 的轮询任务 (间隔 {Interval}ms)", portName, AppConstants.ModbusPollingIntervalMs);
     }
 
     private void StopPolling(string portName)
@@ -170,13 +166,13 @@ public class ModbusProtocolService : IProtocolParser
 
     private async Task PollLoopAsync(string portName, CancellationToken ct)
     {
-        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(PollingIntervalMs));
+        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(AppConstants.ModbusPollingIntervalMs));
         try
         {
             while (await timer.WaitForNextTickAsync(ct))
             {
                 await ReadHoldingRegistersAsync(portName,
-                    AppConstants.DefaultModbusSlaveAddress, PollStartAddress, PollRegisterCount);
+                    AppConstants.DefaultModbusSlaveAddress, AppConstants.ModbusPollStartAddress, AppConstants.ModbusPollRegisterCount);
             }
         }
         catch (OperationCanceledException) { }
@@ -220,7 +216,7 @@ public class ModbusProtocolService : IProtocolParser
         }
     }
 
-    private static SequencePosition ParseBuffer(ReadOnlySequence<byte> buffer, string portName)
+    internal static SequencePosition ParseBuffer(ReadOnlySequence<byte> buffer, string portName)
     {
         var reader = new SequenceReader<byte>(buffer);
 
@@ -228,7 +224,8 @@ public class ModbusProtocolService : IProtocolParser
         {
             ReadOnlySpan<byte> span = reader.UnreadSpan;
 
-            if (span[0] != 0x01) { reader.Advance(1); continue; }
+            // 校验从机地址是否匹配
+            if (span[0] != AppConstants.DefaultModbusSlaveAddress) { reader.Advance(1); continue; }
             if (span.Length < 3) break;
 
             byte functionCode = span[1];
@@ -280,13 +277,13 @@ public class ModbusProtocolService : IProtocolParser
 
     private static int GetExpectedFrameLength(byte dataByte, byte functionCode)
     {
-        if (functionCode > 0x80) return 5;
+        if (functionCode > 0x80) return AppConstants.ModbusExceptionFrameLength;
         return functionCode switch
         {
             (byte)ModbusFunctionCode.ReadHoldingRegisters or
             (byte)ModbusFunctionCode.ReadInputRegisters => 1 + 1 + 1 + dataByte + 2,
             (byte)ModbusFunctionCode.WriteSingleRegister or
-            (byte)ModbusFunctionCode.WriteMultipleRegisters => 8,
+            (byte)ModbusFunctionCode.WriteMultipleRegisters => AppConstants.ModbusWriteFrameLength,
             _ => -1
         };
     }
@@ -304,7 +301,7 @@ public class ModbusProtocolService : IProtocolParser
 
         ReadOnlySpan<byte> dataSpan = frame.Slice(3, dataLength);
 
-        short rawTemp = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(0, 2));
+        short rawTemp = BinaryPrimitives.ReadInt16BigEndian(dataSpan[..2]);
         short rawHum = BinaryPrimitives.ReadInt16BigEndian(dataSpan.Slice(2, 2));
 
         var actualTemperature = Temperature.FromRawModbus(rawTemp);
@@ -341,7 +338,7 @@ public class ModbusProtocolService : IProtocolParser
 
     public void Dispose()
     {
-        _connectionVm.PropertyChanged -= OnConnectionViewModelPropertyChanged;
+        _protocolConfig.PropertyChanged -= OnProtocolConfigChanged;
 
         foreach (var cts in _pollingTokens.Values)
         {
@@ -368,7 +365,7 @@ public class ModbusProtocolService : IProtocolParser
                 pool: MemoryPool<byte>.Shared,
                 pauseWriterThreshold: 0,
                 resumeWriterThreshold: 0,
-                minimumSegmentSize: 4096,
+                minimumSegmentSize: AppConstants.PipeMinimumSegmentSize,
                 useSynchronizationContext: false
             ));
             Cts = new CancellationTokenSource();

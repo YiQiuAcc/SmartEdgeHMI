@@ -245,7 +245,7 @@ public static class Program
     /// <summary>强制终止 HMI 进程</summary>
     private static void KillHmiProcess()
     {
-        if (_hmiProcess is null || _hmiProcess.HasExited) return;
+        if (_hmiProcess?.HasExited != false) return;
 
         try
         {

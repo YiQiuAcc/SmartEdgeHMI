@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Communication;
 using SmartEdgeHMI.Communication.Ports;
 using SmartEdgeHMI.Infrastructure;
 using SmartEdgeHMI.Models.Messages;
@@ -12,7 +13,8 @@ using SmartEdgeHMI.Models.Messages;
 namespace SmartEdgeHMI.ViewModels;
 
 public partial class ConnectionViewModel : ViewModelBase,
-    IRecipient<DeviceStateChanged>
+    IRecipient<DeviceStateChanged>,
+    IProtocolConfig
 {
     private readonly ISerialPortService _serialPortService;
     private readonly HashSet<string> _connectedPorts = [];

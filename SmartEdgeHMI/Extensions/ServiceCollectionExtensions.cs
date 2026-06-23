@@ -25,6 +25,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDeviceCommunicationCoordinator, DeviceCommunicationCoordinator>();
         services.AddSingleton<IAlarmStateMachine, AlarmStateMachine>();
         services.AddSingleton<ConnectionViewModel>();
+        services.AddSingleton<IProtocolConfig>(sp => sp.GetRequiredService<ConnectionViewModel>());
         services.AddSingleton<MonitorViewModel>();
         services.AddSingleton<AlarmHistoryViewModel>();
         services.AddSingleton<LogConsoleViewModel>();

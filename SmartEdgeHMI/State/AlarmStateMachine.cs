@@ -37,10 +37,9 @@ public class AlarmStateMachine : IAlarmStateMachine
         {
             lock (_syncRoot)
             {
-                return _activeAlarms.Values
+                return [.. _activeAlarms.Values
                     .Where(c => c.Record.State != AlarmState.NORMAL)
-                    .Select(c => c.Record)
-                    .ToList();
+                    .Select(c => c.Record)];
             }
         }
     }
@@ -138,7 +137,7 @@ public class AlarmStateMachine : IAlarmStateMachine
             var removed = _activeAlarms
                 .Where(kv => kv.Value.Record.State == AlarmState.NORMAL)
                 .Select(kv => kv.Key).ToList();
-            foreach (var key in removed)
+            foreach (string? key in removed)
                 _activeAlarms.Remove(key);
         }
         Log.Information("[ISA-18.2] 一键确认完成: 处理 {Count} 条报警", count);

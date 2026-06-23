@@ -3,20 +3,23 @@ using System.IO.Ports;
 using System.Text;
 using System.Threading.Channels;
 using CommunityToolkit.Mvvm.Messaging;
+using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Communication.Protocols;
 using SmartEdgeHMI.Models.Messages;
 
 namespace SmartEdgeHMI.Communication.Ports;
 
 /// <summary>
-/// 串口物理层服务:只负责原始字节流的收发与转发, 不关心数据格式。 内部采用双线程模型:
-/// - ReadPortLoop:从 BaseStream 轮询读取原始字节, 写入 Bounded Channel(生产者)
-/// - ForwardDataLoop:从 Channel 读取字节块, 通过 Messenger 广播给协议层(消费者) 两个线程之间通过 Channel 解耦,
-/// 防止读线程被上层协议处理的耗时阻塞。
+/// 串口物理层服务：只负责原始字节流的收发与转发，不关心数据格式。 内部采用双线程模型：
+/// - ReadPortLoop：从 BaseStream 轮询读取原始字节，写入 Bounded Channel（生产者）
+/// - ForwardDataLoop：从 Channel 读取字节块，直接 await 协议解析器（消费者） 两个线程之间通过 Channel 解耦，防止读线程被上层协议处理的耗时阻塞。
+/// 消费者直接通过 DI 获取协议解析器并 await 异步调用，避免 sync-over-async。
 /// </summary>
-public class SerialPortService : ISerialPortService, IDisposable
+public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortService, IDisposable
 {
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly ConcurrentDictionary<string, PortContext> _activePorts = new();
 
     private record PortContext(SerialPort Port, CancellationTokenSource Cts, Channel<byte[]> DataChannel);
@@ -33,8 +36,8 @@ public class SerialPortService : ISerialPortService, IDisposable
 
         var cts = new CancellationTokenSource();
 
-        // Bounded Channel:读线程写入 → 转发线程消费, 容量 1000 个数据块
-        var channelOptions = new BoundedChannelOptions(1000)
+        // Bounded Channel: 读线程写入 → 转发线程消费
+        var channelOptions = new BoundedChannelOptions(AppConstants.SerialChannelCapacity)
         {
             SingleWriter = true,   // 仅 ReadPortLoop 一个生产者
             SingleReader = true    // 仅 ForwardDataLoop 一个消费者
@@ -49,12 +52,12 @@ public class SerialPortService : ISerialPortService, IDisposable
             serialPort.Close();
             serialPort.Dispose();
             cts.Dispose();
-            return; // 端口已存在, 不重复创建
+            return;
         }
 
         WeakReferenceMessenger.Default.Send(new DeviceStateChanged(portName, ConnectionState.Connected));
 
-        // 生产者线程:从串口 BaseStream 不断读取原始字节写入 Channel
+        // 生产者线程：从串口 BaseStream 不断读取原始字节写入 Channel
         _ = Task.Run(async () =>
             {
                 try
@@ -68,19 +71,15 @@ public class SerialPortService : ISerialPortService, IDisposable
                 }
             }, cts.Token);
 
-        // 消费者线程:从 Channel 读取字节块, 通过 Messenger 广播给协议层
-        Task.Run(() => ForwardDataLoop(portName, context))
+        // 消费者线程：从 Channel 读取字节块，直接 await 协议解析器
+        Task.Run(() => ForwardDataLoopAsync(portName, context))
             .ContinueWith(t => Log.Error(t.Exception, "串口转发线程 ForwardDataLoop({Port}) 异常退出", portName),
                 TaskContinuationOptions.OnlyOnFaulted);
     }
 
-    /// <summary>
-    /// 串口读取循环:从 BaseStream.ReadAsync 轮询读取原始字节块, 通过 Channel.TryWrite 零阻塞地推入转发队列。
-    /// 使用 ArrayPool 复用 4KB 缓冲区, 避免高频分配。
-    /// </summary>
     private async Task ReadPortLoopAsync(string portName, PortContext context)
     {
-        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(4096);
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(AppConstants.SerialReadBufferSize);
         try
         {
             while (!context.Cts.Token.IsCancellationRequested)
@@ -90,7 +89,6 @@ public class SerialPortService : ISerialPortService, IDisposable
                     int bytesRead = await context.Port.BaseStream.ReadAsync(buffer, context.Cts.Token);
                     if (bytesRead > 0)
                     {
-                        // 从池中复制出独立的数据块, 归还缓冲区供下次复用
                         byte[] chunk = new byte[bytesRead];
                         Array.Copy(buffer, chunk, bytesRead);
                         context.DataChannel.Writer.TryWrite(chunk);
@@ -108,23 +106,47 @@ public class SerialPortService : ISerialPortService, IDisposable
         finally
         {
             System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-            context.DataChannel.Writer.Complete(); // 通知转发线程不再有新数据
+            context.DataChannel.Writer.Complete();
         }
     }
 
-    private static async Task ForwardDataLoop(string portName, PortContext context)
+    /// <summary>
+    /// 转发循环：从 Channel 读取原始字节，直接 await 协议解析器的异步方法。 避免了旧版通过 Messenger 同步广播导致的 sync-over-async 问题。
+    /// </summary>
+    private async Task ForwardDataLoopAsync(string portName, PortContext context)
     {
+        // 预获取协议解析器引用
+        var protocolConfig = _serviceProvider.GetRequiredService<IProtocolConfig>();
+        var serviceProvider = _serviceProvider;
+
         try
         {
             await foreach (byte[] chunk in context.DataChannel.Reader.ReadAllAsync(context.Cts.Token))
             {
-                WeakReferenceMessenger.Default.Send(new RawDataReceived(portName, chunk));
+                string? key = protocolConfig.SelectedProtocol switch
+                {
+                    CommunicationProtocol.JSON => "JSON",
+                    CommunicationProtocol.Modbus => "Modbus",
+                    _ => null
+                };
+
+                if (key is null) continue;
+
+                try
+                {
+                    var parser = serviceProvider.GetRequiredKeyedService<IProtocolParser>(key);
+                    // 真正的 await，不再阻塞线程池线程
+                    await parser.OnDataReceivedAsync(portName, chunk.AsMemory());
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "[Forward] 协议解析器 {Key} 处理数据时异常", key);
+                }
             }
         }
         catch (OperationCanceledException) { }
     }
 
-    /// <summary>处理意外断线:广播错误状态并清理端口资源</summary>
     private void HandleUnexpectedDisconnect(string portName)
     {
         WeakReferenceMessenger.Default.Send(new DeviceStateChanged(portName, ConnectionState.Error, "硬件连接异常断开"));

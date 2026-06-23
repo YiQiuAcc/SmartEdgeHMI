@@ -76,10 +76,7 @@ public class ModbusProtocolServiceTests
         Assert.NotEqual(crc1, crc2);
     }
 
-    /// <summary>
-    /// 验证 CRC 计算与 Modbus 标准库的一致性
-    /// 测试 Modbus 写单个寄存器请求帧的 CRC
-    /// </summary>
+    /// <summary>验证 CRC 计算与 Modbus 标准库的一致性 测试 Modbus 写单个寄存器请求帧的 CRC</summary>
     [Fact]
     public void CalcCRC16_WriteSingleRegister_ShouldMatchExpected()
     {
@@ -156,7 +153,7 @@ public class ModbusProtocolServiceTests
         const ushort value = 0x0014; // 20°C * 10
 
         Span<byte> data = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt16BigEndian(data.Slice(0, 2), registerAddress);
+        BinaryPrimitives.WriteUInt16BigEndian(data[..2], registerAddress);
         BinaryPrimitives.WriteUInt16BigEndian(data.Slice(2, 2), value);
 
         const int frameLength = 1 + 1 + 4 + 2;

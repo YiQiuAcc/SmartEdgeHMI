@@ -29,7 +29,7 @@ public class DeviceStateContainer : IDeviceStateContainer
     public IReadOnlyDictionary<string, ErrorCode> ActiveAlarms =>
         new Dictionary<string, ErrorCode>(_activeAlarms);
 
-    public bool HasActiveAlarms => _activeAlarms.Count > 0;
+    public bool HasActiveAlarms => !_activeAlarms.IsEmpty;
 
     private readonly object _connectionLock = new();
 

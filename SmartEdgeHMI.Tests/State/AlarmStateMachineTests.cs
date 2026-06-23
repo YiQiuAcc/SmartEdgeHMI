@@ -45,7 +45,7 @@ public class AlarmStateMachineTests
 
         Assert.NotNull(result);
         Assert.Equal("Sensor_01", result.DeviceId);
-        Assert.Equal(ErrorCode.ThresholdExceeded.ToString(), result.AlarmCode);
+        Assert.Equal(nameof(ErrorCode.ThresholdExceeded), result.AlarmCode);
         Assert.Equal(AlarmState.UNACK, result.State);
         Assert.Null(result.AcknowledgedAt);
         Assert.Null(result.ClearedAt);

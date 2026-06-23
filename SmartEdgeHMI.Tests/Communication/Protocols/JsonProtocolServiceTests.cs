@@ -7,13 +7,9 @@ using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.Tests.Communication.Protocols;
 
-/// <summary>
-/// 验证 JSON-Lines 协议解析核心逻辑</para>
-/// 测试策略:
+/// <summary> 验证 JSON-Lines 协议解析核心逻辑</para> 测试策略:
 /// - 通过反射调用其私有静态 ProcessLine 方法来验证 JSON 解析核心逻辑
-/// - 验证内容包括:有效 JSON 解析、无效 JSON 处理、CRLF 处理
-/// </para>
-/// </summary>
+/// - 验证内容包括:有效 JSON 解析、无效 JSON 处理、CRLF 处理 </para> </summary>
 public class JsonProtocolServiceTests
 {
     private static readonly MethodInfo _processLineMethod = typeof(JsonProtocolService)
@@ -34,7 +30,10 @@ public class JsonProtocolServiceTests
     [Fact]
     public void ProcessLine_JsonWithTrailingCR_ShouldTrimAndDeserialize()
     {
+#pragma warning disable RCS1190
         const string json = """{"deviceId":"Sensor_01","temperature":{"celsius":25.5},"humidity":{"percent":60.0},"status":1,"err_code":0,"quality":0}""" + "\r";
+#pragma warning restore RCS1190
+
         var seq = CreateSequence(json);
 
         var ex = Record.Exception(() => InvokeProcessLine("COM1", seq));

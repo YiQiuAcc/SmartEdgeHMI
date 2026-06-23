@@ -7,47 +7,32 @@ using SmartEdgeHMI.Communication.Ports;
 using SmartEdgeHMI.Communication.Protocols;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Communication;
 
+/// <summary>
+/// 设备通信协调器。 职责：指令下发（阈值设置、设备复位）+ 设备状态变更路由（通知所有协议解析器）。 原始字节流的路由已下沉到
+/// SerialPortService.ForwardDataLoopAsync。
+/// </summary>
 public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
-    IRecipient<RawDataReceived>,
     IRecipient<DeviceStateChanged>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ISerialPortService _serialPortService;
-    private readonly ConnectionViewModel _connectionVm;
+    private readonly IProtocolConfig _protocolConfig;
 
     public DeviceCommunicationCoordinator(
         IServiceProvider serviceProvider,
         ISerialPortService serialPortService,
-        ConnectionViewModel connectionVm)
+        IProtocolConfig protocolConfig)
     {
         _serviceProvider = serviceProvider;
         _serialPortService = serialPortService;
-        _connectionVm = connectionVm;
+        _protocolConfig = protocolConfig;
         WeakReferenceMessenger.Default.RegisterAll(this);
     }
 
-    public void Receive(RawDataReceived message)
-    {
-        if (message.Data.Length == 0) return;
-
-        string? key = _connectionVm.SelectedProtocol switch
-        {
-            CommunicationProtocol.JSON => "JSON",
-            CommunicationProtocol.Modbus => "Modbus",
-            _ => null
-        };
-
-        if (key is null) return;
-
-        var parser = _serviceProvider.GetRequiredKeyedService<IProtocolParser>(key);
-        parser.OnDataReceived(message.PortName, message.Data.AsSpan());
-    }
-
-    public void Receive(DeviceStateChanged message)
+    void IRecipient<DeviceStateChanged>.Receive(DeviceStateChanged message)
     {
         NotifyParser("JSON", message);
         NotifyParser("Modbus", message);
@@ -68,8 +53,8 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
 
     public async Task SendThresholdAsync(double value)
     {
-        var protocol = _connectionVm.SelectedProtocol;
-        foreach (string portName in _connectionVm.ConnectedPorts.ToList())
+        var protocol = _protocolConfig.SelectedProtocol;
+        foreach (string portName in _protocolConfig.ConnectedPorts.ToList())
         {
             switch (protocol)
             {
@@ -91,7 +76,7 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
                     var modbus = (ModbusProtocolService)
                         _serviceProvider.GetRequiredKeyedService<IProtocolParser>("Modbus");
                     await modbus.WriteSingleRegisterAsync(portName,
-                        AppConstants.DefaultModbusSlaveAddress, 0x0002, (ushort)Math.Round(value * 10));
+                        AppConstants.DefaultModbusSlaveAddress, ModbusProtocolService.RegisterThreshold, (ushort)Math.Round(value * 10));
                     Log.Information("[Modbus] 下发阈值至 {Port}: {Value}°C (寄存器 {Raw})",
                         portName, value, (ushort)Math.Round(value * 10));
                     break;
@@ -102,10 +87,10 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
 
     public async Task ResetDeviceAsync()
     {
-        string? port = _connectionVm.SelectedPort;
+        string? port = _protocolConfig.SelectedPort;
         if (string.IsNullOrEmpty(port)) return;
 
-        var protocol = _connectionVm.SelectedProtocol;
+        var protocol = _protocolConfig.SelectedProtocol;
         switch (protocol)
         {
             case CommunicationProtocol.JSON:
@@ -125,7 +110,7 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
                 var modbus = (ModbusProtocolService)
                     _serviceProvider.GetRequiredKeyedService<IProtocolParser>("Modbus");
                 await modbus.WriteSingleRegisterAsync(port,
-                    AppConstants.DefaultModbusSlaveAddress, 0x0001, 1);
+                    AppConstants.DefaultModbusSlaveAddress, ModbusProtocolService.RegisterReset, 1);
                 Log.Information("[Modbus] 复位指令已发送至 {Port}", port);
                 break;
             }

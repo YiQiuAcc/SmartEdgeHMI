@@ -177,7 +177,7 @@ public partial class MonitorViewModel : ViewModelBase,
             _ = SaveThresholdSafeAsync(AlarmThreshold);
     }
 
-    partial void OnAlarmThresholdChanged(double value)
+    private partial void OnAlarmThresholdChanged(double value)
     {
         if (_isInitializing) return;
         _ = DebounceSaveThreshold(value);

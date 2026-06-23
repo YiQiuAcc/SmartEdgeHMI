@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
+using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
 
@@ -16,7 +17,7 @@ public class JsonProtocolService : IProtocolParser
 
     public string Key => "JSON";
 
-    public void OnDataReceived(string portName, ReadOnlySpan<byte> data)
+    public async ValueTask OnDataReceivedAsync(string portName, ReadOnlyMemory<byte> data)
     {
         if (data.Length == 0) return;
 
@@ -27,11 +28,8 @@ public class JsonProtocolService : IProtocolParser
             return s;
         });
 
-        try
-        {
-            state.Pipe.Writer.WriteAsync(data.ToArray()).GetAwaiter().GetResult();
-        }
-        catch (InvalidOperationException) { }
+        // 异步写入 Pipe，不再 .GetAwaiter().GetResult()
+        await state.Pipe.Writer.WriteAsync(data);
     }
 
     public void OnDeviceStateChanged(string portName, ConnectionState state)
@@ -152,7 +150,7 @@ public class JsonProtocolService : IProtocolParser
                 pool: MemoryPool<byte>.Shared,
                 pauseWriterThreshold: 0,
                 resumeWriterThreshold: 0,
-                minimumSegmentSize: 4096,
+                minimumSegmentSize: AppConstants.PipeMinimumSegmentSize,
                 useSynchronizationContext: false
             ));
             Cts = new CancellationTokenSource();
