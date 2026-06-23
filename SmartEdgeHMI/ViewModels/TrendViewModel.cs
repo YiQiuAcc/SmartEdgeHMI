@@ -50,7 +50,7 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
         IsHistoryMode = !IsHistoryMode;
     }
 
-    private partial void OnIsHistoryModeChanged(bool value)
+    partial void OnIsHistoryModeChanged(bool value)
     {
         if (!value)
         {
