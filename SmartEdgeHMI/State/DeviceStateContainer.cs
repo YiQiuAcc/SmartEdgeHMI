@@ -7,6 +7,7 @@ using SmartEdgeHMI.Models.ValueObjects;
 
 namespace SmartEdgeHMI.State;
 
+/// <summary>设备运行时状态容器: 聚合最新遥测值、连接状态和活跃报警, 向 UI 层提供数据绑定源</summary>
 public class DeviceStateContainer : IDeviceStateContainer
 {
     private readonly ConcurrentDictionary<string, DeviceStateSnapshot> _deviceStates = new();
@@ -26,7 +27,7 @@ public class DeviceStateContainer : IDeviceStateContainer
     public DateTime LatestTimestamp { get; private set; } = DateTime.Now;
     public string LatestPortName { get; private set; } = string.Empty;
 
-    public IReadOnlyDictionary<string, ErrorCode> ActiveAlarms =>
+    public IReadOnlyDictionary<string, ErrorCode> GetActiveAlarms() =>
         new Dictionary<string, ErrorCode>(_activeAlarms);
 
     public bool HasActiveAlarms => !_activeAlarms.IsEmpty;
@@ -38,9 +39,12 @@ public class DeviceStateContainer : IDeviceStateContainer
         lock (_connectionLock) return _connectedPorts.Contains(portName);
     }
 
-    public IReadOnlySet<string> ConnectedPorts
+    public IReadOnlySet<string> GetConnectedPorts()
     {
-        get { lock (_connectionLock) return new HashSet<string>(_connectedPorts); }
+        lock (_connectionLock)
+        {
+            return new HashSet<string>(_connectedPorts);
+        }
     }
 
     public void UpdateTelemetry(string portName, Temperature temperature, Humidity humidity,
@@ -77,7 +81,8 @@ public class DeviceStateContainer : IDeviceStateContainer
             else
                 _connectedPorts.Remove(portName);
         }
-        Notify(nameof(ConnectedPorts));
+        // 更新通知名称为方法名
+        Notify(nameof(GetConnectedPorts));
         Notify(nameof(IsPortConnected));
     }
 
@@ -87,7 +92,8 @@ public class DeviceStateContainer : IDeviceStateContainer
         foreach (var kv in alarms)
             _activeAlarms.TryAdd(kv.Key, kv.Value);
 
-        Notify(nameof(ActiveAlarms));
+        // 更新通知名称为方法名
+        Notify(nameof(GetActiveAlarms));
         Notify(nameof(HasActiveAlarms));
     }
 }

@@ -1,6 +1,6 @@
 namespace SmartEdgeHMI.Communication.Protocols.Utils;
 
-public static class CRC16Table
+public static class Crc16Table
 {
     public static readonly ushort[] CrcTlb = [
         0x0000, 0xCC01, 0xD801, 0x1400, 0xF001, 0x3C00, 0x2800, 0xE401,

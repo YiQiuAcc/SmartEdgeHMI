@@ -22,7 +22,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
     private readonly string _connectionString;
     private readonly int _queryLimit;
 
-    // 遥测批量写入双缓冲通道:支持多生产者(多协议采集线程)单消费者(后台刷盘任务)
+    // 遥测批量写入双缓冲通道: 支持多生产者(多协议采集线程)单消费者(后台刷盘任务)
     private readonly Channel<SensorReadingRecord> _telemetryChannel;
     private readonly CancellationTokenSource _telemetryCts;
     private readonly Task _telemetryConsumerTask;
@@ -34,8 +34,8 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
 
     static SqliteRepository()
     {
-        // 注册 Dapper 自定义类型处理器 使 Value Object(Temperature/Humidity/DataQuality) 能与 SQLite
-        // 的REAL/INTEGER 列自动转换
+        // 注册 Dapper 自定义类型处理器, 使 Value Object(Temperature/Humidity/DataQuality) 能与 SQLite 的
+        // REAL/INTEGER 列自动转换
         SqlMapper.AddTypeHandler(new DataQualityTypeHandler());
         SqlMapper.AddTypeHandler(new TemperatureTypeHandler());
         SqlMapper.AddTypeHandler(new HumidityTypeHandler());
@@ -131,15 +131,17 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         try
         {
             await using var connection = await CreateConnectionAsync();
-            await using var transaction = connection.BeginTransaction();
+            // 异步开启事务一个 await 用于等待异步方法返回, 另一个 await using 用于异步释放
+            await using var transaction = await connection.BeginTransactionAsync();
 
             await connection.ExecuteAsync("""
-                UPDATE AlarmHistory
-                SET State = @State, AcknowledgedAt = @AcknowledgedAt, ClearedAt = @ClearedAt
-                WHERE Id = @Id
-                """, alarms, transaction: transaction);
+            UPDATE AlarmHistory
+            SET State = @State, AcknowledgedAt = @AcknowledgedAt, ClearedAt = @ClearedAt
+            WHERE Id = @Id
+            """, alarms, transaction: transaction);
 
-            transaction.Commit();
+            // 异步提交事务
+            await transaction.CommitAsync();
         }
         catch (Exception ex)
         {
@@ -147,6 +149,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         }
     }
 
+    /// <summary>查询报警记录及其前后时间窗口内的关联遥测数据, 用于报警上下文分析</summary>
     public async Task<List<AlarmWithTelemetry>> GetAlarmsWithTelemetryContextAsync(
         AlarmHistoryFilter? filter = null, TimeSpan? telemetryWindow = null)
     {
@@ -248,38 +251,72 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         {
             try
             {
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeoutCts.CancelAfter(TelemetryFlushIntervalMs);
-
-                try
-                {
-                    if (await _telemetryChannel.Reader.WaitToReadAsync(timeoutCts.Token))
-                    {
-                        while (batch.Count < TelemetryBatchSize && _telemetryChannel.Reader.TryRead(out var item))
-                            batch.Add(item);
-                    }
-                }
-                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested) { }
-
-                bool countReached = batch.Count >= TelemetryBatchSize;
-                bool timeReached = batch.Count > 0 && (DateTime.UtcNow - lastFlush).TotalMilliseconds >= TelemetryFlushIntervalMs;
-
-                if (countReached || timeReached)
-                {
-                    await FlushTelemetryBatchAsync(batch);
-                    batch.Clear();
-                    lastFlush = DateTime.UtcNow;
-                }
+                await TryFillBatchAsync(batch, ct);
+                lastFlush = await CheckAndFlushBatchAsync(batch, lastFlush);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
-            catch (Exception ex) { Log.Error(ex, "遥测批量消费循环异常"); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "遥测批量消费循环异常");
+            }
         }
 
+        await FlushRemainingTelemetryAsync(batch);
+    }
+
+    /// <summary>尝试从 Channel 异步读取数据填充 Batch, 包含超时控制</summary>
+    private async Task TryFillBatchAsync(List<SensorReadingRecord> batch, CancellationToken ct)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TelemetryFlushIntervalMs);
+
+        try
+        {
+            if (await _telemetryChannel.Reader.WaitToReadAsync(timeoutCts.Token))
+            {
+                while (batch.Count < TelemetryBatchSize && _telemetryChannel.Reader.TryRead(out var item))
+                {
+                    batch.Add(item);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            // 内部超时触发时在此处捕获
+        }
+    }
+
+    /// <summary>检查定量或定量时间范围, 满足则触发刷盘</summary>
+    private async Task<DateTime> CheckAndFlushBatchAsync(List<SensorReadingRecord> batch, DateTime lastFlush)
+    {
+        bool countReached = batch.Count >= TelemetryBatchSize;
+        bool timeReached = batch.Count > 0 && (DateTime.UtcNow - lastFlush).TotalMilliseconds >= TelemetryFlushIntervalMs;
+
+        if (countReached || timeReached)
+        {
+            await FlushTelemetryBatchAsync(batch);
+            batch.Clear();
+            return DateTime.UtcNow; // 触发了刷盘, 返回全新的刷盘时间戳
+        }
+
+        return lastFlush; // 未触发刷盘, 返回原样的时间戳
+    }
+
+    /// <summary>消费循环结束后, 排空 Channel 中剩余的全部数据并最后一次刷盘</summary>
+    private async Task FlushRemainingTelemetryAsync(List<SensorReadingRecord> batch)
+    {
         while (_telemetryChannel.Reader.TryRead(out var remaining))
+        {
             batch.Add(remaining);
+        }
 
         if (batch.Count > 0)
+        {
             await FlushTelemetryBatchAsync(batch);
+        }
     }
 
     private async Task FlushTelemetryBatchAsync(List<SensorReadingRecord> batch)
@@ -287,15 +324,16 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         try
         {
             await using var connection = await CreateConnectionAsync();
-            await using var transaction = connection.BeginTransaction();
+            // 使用 await 异步开启事务, 配合 await using 实现离开作用域时异步 Dispose
+            await using var transaction = await connection.BeginTransactionAsync();
 
             const string sql = """
-            INSERT INTO TelemetryHistory (DeviceId, Timestamp, Temperature, Humidity, StatusCode, ErrorCode, QualityCode)
-            VALUES (@DeviceId, @Timestamp, @Temperature, @Humidity, @StatusCode, @ErrorCode, @QualityCode)
-            """;
+        INSERT INTO TelemetryHistory (DeviceId, Timestamp, Temperature, Humidity, StatusCode, ErrorCode, QualityCode)
+        VALUES (@DeviceId, @Timestamp, @Temperature, @Humidity, @StatusCode, @ErrorCode, @QualityCode)
+        """;
 
             await connection.ExecuteAsync(sql, batch, transaction: transaction);
-            transaction.Commit();
+            await transaction.CommitAsync();
         }
         catch (Exception ex)
         {
@@ -303,6 +341,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         }
     }
 
+    /// <summary>初始化数据库和表结构, 启用 WAL 模式并执行增量迁移</summary>
     public async Task InitializeDatabaseAsync()
     {
         try
@@ -353,8 +392,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
         }
         catch (Exception ex)
         {
-            Log.Fatal(ex, "数据库初始化失败");
-            throw;
+            throw new InvalidOperationException("系统初始化失败: 无法连接到核心数据库或执行迁移脚本, 请检查配置。", ex);
         }
     }
 
@@ -381,6 +419,7 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
             await connection.ExecuteAsync("ALTER TABLE AlarmHistory ADD COLUMN ClearedAt TEXT");
     }
 
+    /// <summary>释放资源: 完成 Channel 中剩余遥测数据的刷盘, 等待后台消费者退出</summary>
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
@@ -394,8 +433,14 @@ public sealed class SqliteRepository : ITelemetryRepository, IAlarmRepository, I
             // 等待后台任务完成刷盘
             await _telemetryConsumerTask.WaitAsync(TimeSpan.FromSeconds(5));
         }
-        catch (OperationCanceledException) { }
-        catch (TimeoutException) { }
+        catch (OperationCanceledException)
+        {
+            // 取消等待, 继续释放资源
+        }
+        catch (TimeoutException)
+        {
+            // 超时等待, 继续释放资源
+        }
         catch (Exception ex)
         {
             Log.Warning(ex, "[SqliteRepository] 遥测消费任务在停止时抛出异常");

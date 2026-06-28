@@ -19,8 +19,7 @@ public class ModbusProtocolService : IProtocolParser
     private readonly IProtocolConfig _protocolConfig;
     private readonly ConcurrentDictionary<string, PortPipeState> _pipes = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _pollingTokens = new();
-
-    // Modbus 寄存器地址定义
+    private bool _disposed;
     public const ushort RegisterReset = 0x0001;
     public const ushort RegisterThreshold = 0x0002;
 
@@ -39,8 +38,8 @@ public class ModbusProtocolService : IProtocolParser
         for (int i = 0; i < data.Length; i++)
         {
             byte ch = data[i];
-            crc = (ushort)(CRC16Table.CrcTlb[(ch ^ crc) & 0x0F] ^ (crc >> 4));
-            crc = (ushort)(CRC16Table.CrcTlb[((ch >> 4) ^ crc) & 0x0F] ^ (crc >> 4));
+            crc = (ushort)(Crc16Table.CrcTlb[(ch ^ crc) & 0x0F] ^ (crc >> 4));
+            crc = (ushort)(Crc16Table.CrcTlb[((ch >> 4) ^ crc) & 0x0F] ^ (crc >> 4));
         }
         return crc;
     }
@@ -94,14 +93,14 @@ public class ModbusProtocolService : IProtocolParser
     {
         if (data.Length == 0) return;
 
-        var state = _pipes.GetOrAdd(portName, _ =>
+        var state = _pipes.GetOrAdd(portName, key =>
         {
             var s = new PortPipeState();
-            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(portName, s));
+            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(key, s));
             return s;
         });
 
-        // 异步写入 Pipe，不再 .GetAwaiter().GetResult()
+        // 异步写入 Pipe 避免 sync-over-async: 上游 ForwardDataLoop 处于异步上下文, 阻塞将耗尽线程池
         await state.Pipe.Writer.WriteAsync(data).ConfigureAwait(false);
     }
 
@@ -129,7 +128,7 @@ public class ModbusProtocolService : IProtocolParser
         {
             foreach (string portName in _protocolConfig.ConnectedPorts)
                 StartPolling(portName);
-            Log.Information("[Modbus] 协议已切换至Modbus模式，已启动所有已连接端口的轮询");
+            Log.Information("[Modbus] 协议已切换至Modbus模式, 已启动所有已连接端口的轮询");
         }
         else
         {
@@ -137,7 +136,7 @@ public class ModbusProtocolService : IProtocolParser
                 StopPolling(portName);
             foreach (string portName in _pipes.Keys.ToList())
                 CleanupPipe(portName);
-            Log.Information("[Modbus] 协议已切换至非Modbus模式，已停止所有轮询并清理管道");
+            Log.Information("[Modbus] 协议已切换至非Modbus模式, 已停止所有轮询并清理管道");
         }
     }
 
@@ -172,10 +171,13 @@ public class ModbusProtocolService : IProtocolParser
             while (await timer.WaitForNextTickAsync(ct))
             {
                 await ReadHoldingRegistersAsync(portName,
-                    AppConstants.DefaultModbusSlaveAddress, AppConstants.ModbusPollStartAddress, AppConstants.ModbusPollRegisterCount);
+                    _protocolConfig.SlaveAddress, AppConstants.ModbusPollStartAddress, AppConstants.ModbusPollRegisterCount);
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // 轮询被取消, 正常退出
+        }
         catch (Exception ex)
         {
             Log.Error(ex, "[Modbus] {Port} 轮询循环异常退出", portName);
@@ -198,13 +200,16 @@ public class ModbusProtocolService : IProtocolParser
                 ReadResult result = await pipe.Reader.ReadAsync(ct);
                 if (result.IsCanceled) break;
 
-                SequencePosition consumed = ParseBuffer(result.Buffer, portName);
+                SequencePosition consumed = ParseBuffer(result.Buffer, portName, _protocolConfig.SlaveAddress);
                 pipe.Reader.AdvanceTo(consumed, result.Buffer.End);
 
                 if (result.IsCompleted) break;
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // 外部触发 Cancellation 时正常退出循环
+        }
         catch (Exception ex)
         {
             Log.Error(ex, "[Modbus] {Port} 管道处理循环异常退出", portName);
@@ -216,63 +221,86 @@ public class ModbusProtocolService : IProtocolParser
         }
     }
 
-    internal static SequencePosition ParseBuffer(ReadOnlySequence<byte> buffer, string portName)
+    internal static SequencePosition ParseBuffer(ReadOnlySequence<byte> buffer, string portName, byte slaveAddress)
     {
         var reader = new SequenceReader<byte>(buffer);
 
+        // 主循环保持极度清爽
         while (reader.Remaining >= 5)
         {
-            ReadOnlySpan<byte> span = reader.UnreadSpan;
-
-            // 校验从机地址是否匹配
-            if (span[0] != AppConstants.DefaultModbusSlaveAddress) { reader.Advance(1); continue; }
-            if (span.Length < 3) break;
-
-            byte functionCode = span[1];
-            int expectedLength = GetExpectedFrameLength(span[2], functionCode);
-
-            if (expectedLength == -1) { reader.Advance(1); continue; }
-            if (reader.Remaining < expectedLength) break;
-
-            ReadOnlySpan<byte> frame;
-            byte[]? rented = null;
-
-            try
+            // 如果返回 false，说明剩余数据不足以组成预期的一帧，应当退出循环
+            if (!TryProcessNextFrame(ref reader, portName, slaveAddress))
             {
-                if (reader.UnreadSpan.Length >= expectedLength)
-                {
-                    frame = reader.UnreadSpan[..expectedLength];
-                }
-                else
-                {
-                    var frameSeq = reader.Sequence.Slice(reader.Position, expectedLength);
-                    rented = ArrayPool<byte>.Shared.Rent(expectedLength);
-                    frameSeq.CopyTo(rented);
-                    frame = rented.AsSpan(0, expectedLength);
-                }
-
-                ushort calculatedCrc = CalcCRC16(frame[..^2]);
-                ushort deviceCrc = BinaryPrimitives.ReadUInt16LittleEndian(frame[^2..]);
-
-                if (calculatedCrc == deviceCrc)
-                {
-                    ProcessValidFrame(frame, portName);
-                    reader.Advance(expectedLength);
-                }
-                else
-                {
-                    Log.Warning("[Modbus] {Port} CRC校验失败 (预期 {CalcCRC}, 设备 {DevCRC}), 丢弃脏字节",
-                        portName, calculatedCrc, deviceCrc);
-                    reader.Advance(1);
-                }
-            }
-            finally
-            {
-                if (rented != null) ArrayPool<byte>.Shared.Return(rented);
+                break;
             }
         }
 
         return reader.Position;
+    }
+
+    /// <summary>尝试处理下一个可能的数据帧</summary>
+    private static bool TryProcessNextFrame(ref SequenceReader<byte> reader, string portName, byte slaveAddress)
+    {
+        ReadOnlySpan<byte> span = reader.UnreadSpan;
+
+        // 校验从机地址
+        if (span[0] != slaveAddress) { reader.Advance(1); return true; }
+        if (span.Length < 3) return false; // 跨 Segments 导致物理长度不够，跳出外层循环等待数据
+
+        // 计算预期长度
+        byte functionCode = span[1];
+        int expectedLength = GetExpectedFrameLength(span[2], functionCode);
+
+        if (expectedLength == -1) { reader.Advance(1); return true; }
+        if (reader.Remaining < expectedLength) return false; // 剩余总字节不足以组成一整帧，跳出
+        // 提取并校验帧数据
+        ProcessFrameData(ref reader, expectedLength, portName);
+        return true;
+    }
+
+    /// <summary>提取帧 Span 并进行 CRC 校验</summary>
+    private static void ProcessFrameData(ref SequenceReader<byte> reader, int expectedLength, string portName)
+    {
+        byte[]? rented = null;
+        try
+        {
+            // 获取只读帧视窗 (自适应单内存块或多内存块租赁)
+            ReadOnlySpan<byte> frame = GetFrameSpan(ref reader, expectedLength, out rented);
+
+            ushort calculatedCrc = CalcCRC16(frame[..^2]);
+            ushort deviceCrc = BinaryPrimitives.ReadUInt16LittleEndian(frame[^2..]);
+
+            if (calculatedCrc == deviceCrc)
+            {
+                ProcessValidFrame(frame, portName);
+                reader.Advance(expectedLength);
+            }
+            else
+            {
+                Log.Warning("[Modbus] {Port} CRC校验失败 (预期 {CalcCRC}, 设备 {DevCRC}), 丢弃脏字节",
+                    portName, calculatedCrc, deviceCrc);
+                reader.Advance(1);
+            }
+        }
+        finally
+        {
+            if (rented != null) ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    /// <summary>从 SequenceReader 自适应获取帧 Span</summary>
+    private static ReadOnlySpan<byte> GetFrameSpan(ref SequenceReader<byte> reader, int expectedLength, out byte[]? rented)
+    {
+        if (reader.UnreadSpan.Length >= expectedLength)
+        {
+            rented = null;
+            return reader.UnreadSpan[..expectedLength];
+        }
+
+        var frameSeq = reader.Sequence.Slice(reader.Position, expectedLength);
+        rented = ArrayPool<byte>.Shared.Rent(expectedLength);
+        frameSeq.CopyTo(rented);
+        return rented.AsSpan(0, expectedLength);
     }
 
     private static int GetExpectedFrameLength(byte dataByte, byte functionCode)
@@ -338,19 +366,42 @@ public class ModbusProtocolService : IProtocolParser
 
     public void Dispose()
     {
-        _protocolConfig.PropertyChanged -= OnProtocolConfigChanged;
-
-        foreach (var cts in _pollingTokens.Values)
-        {
-            cts.Cancel();
-            cts.Dispose();
-        }
-        _pollingTokens.Clear();
-
-        foreach (string portName in _pipes.Keys.ToList())
-            CleanupPipe(portName);
-
+        Dispose(true);
         GC.SuppressFinalize(this);
+    }
+
+    // 标准的 Dispose 模式保护虚方法
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+
+        if (disposing)
+        {
+            // 取消事件订阅
+            _protocolConfig.PropertyChanged -= OnProtocolConfigChanged;
+            // 释放所有轮询 Token
+            foreach (var cts in _pollingTokens.Values)
+            {
+                try
+                {
+                    cts.Cancel();
+                    cts.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "[Modbus] 释放轮询 Cts 时发生异常");
+                }
+            }
+            _pollingTokens.Clear();
+
+            // 清理管道资源
+            foreach (string portName in _pipes.Keys.ToList())
+            {
+                CleanupPipe(portName);
+            }
+        }
+
+        _disposed = true;
     }
 
     private sealed class PortPipeState : IDisposable

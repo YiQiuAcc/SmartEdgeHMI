@@ -14,34 +14,38 @@ namespace SmartEdgeHMI.Communication.Protocols;
 public class JsonProtocolService : IProtocolParser
 {
     private readonly ConcurrentDictionary<string, PortPipeState> _pipes = new();
+    private bool _disposed;
 
     public string Key => "JSON";
 
     public async ValueTask OnDataReceivedAsync(string portName, ReadOnlyMemory<byte> data)
     {
+        // 防御性编程：如果服务已销毁，拒绝接收数据
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (data.Length == 0) return;
 
-        var state = _pipes.GetOrAdd(portName, _ =>
+        var state = _pipes.GetOrAdd(portName, key =>
         {
             var s = new PortPipeState();
-            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(portName, s));
+            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(key, s));
             return s;
         });
 
-        // 异步写入 Pipe，不再 .GetAwaiter().GetResult()
+        // 异步写入 Pipe 避免 sync-over-async: 上游 ForwardDataLoop 处于异步上下文, 阻塞将耗尽线程池
         await state.Pipe.Writer.WriteAsync(data);
     }
 
     public void OnDeviceStateChanged(string portName, ConnectionState state)
     {
-        if (state == ConnectionState.Disconnected || state == ConnectionState.Error)
+        if (_disposed) return;
+
+        if ((state == ConnectionState.Disconnected || state == ConnectionState.Error)
+            && _pipes.TryRemove(portName, out var ps))
         {
-            if (_pipes.TryRemove(portName, out var ps))
-            {
-                ps.Pipe.Writer.Complete();
-                ps.Cts.Cancel();
-                ps.Dispose();
-            }
+            ps.Pipe.Writer.Complete();
+            ps.Cts.Cancel();
+            ps.Dispose();
         }
     }
 
@@ -59,7 +63,10 @@ public class JsonProtocolService : IProtocolParser
                 if (result.IsCompleted) break;
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // 外部触发 Cancellation 时正常退出循环
+        }
         catch (Exception ex)
         {
             Log.Error(ex, "[JSON] {Port} 管道处理循环异常退出", portName);
@@ -126,16 +133,35 @@ public class JsonProtocolService : IProtocolParser
 
     public void Dispose()
     {
-        foreach (string portName in _pipes.Keys.ToList())
-        {
-            if (_pipes.TryRemove(portName, out var ps))
-            {
-                ps.Pipe.Writer.Complete();
-                ps.Cts.Cancel();
-                ps.Dispose();
-            }
-        }
+        Dispose(true);
         GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+
+        if (disposing)
+        {
+            foreach (string portName in _pipes.Keys.ToList())
+            {
+                if (_pipes.TryRemove(portName, out var ps))
+                {
+                    try
+                    {
+                        ps.Pipe.Writer.Complete();
+                        ps.Cts.Cancel();
+                        ps.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "释放 JSON 协议管道 {Port} 时发生异常", portName);
+                    }
+                }
+            }
+            _pipes.Clear();
+        }
+        _disposed = true;
     }
 
     private sealed class PortPipeState : IDisposable

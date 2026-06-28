@@ -6,6 +6,7 @@ using SmartEdgeHMI.Common;
 
 namespace SmartEdgeHMI.State;
 
+/// <summary>应用设置服务: 从本地 JSON 文件加载/保存设置, 首次运行时回退到 appsettings.json 默认值</summary>
 public class SettingsService : ISettingsService
 {
     private AppSettings _currentSettings = new();
@@ -17,12 +18,16 @@ public class SettingsService : ISettingsService
     public SettingsService(IConfiguration configuration)
     {
         _configuration = configuration;
-        _filePath = Path.Combine(AppContext.BaseDirectory, "settings.json");
+        string appDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartEdgeHMI");
+        Directory.CreateDirectory(appDataDir);
+        _filePath = Path.Combine(appDataDir, "settings.json");
         LoadSettings();
     }
 
     public AppSettings Current => _currentSettings;
 
+    /// <summary>从本地 JSON 文件加载设置；文件不存在时从 appsettings.json 回退</summary>
     public void LoadSettings()
     {
         if (!File.Exists(_filePath))
@@ -70,6 +75,7 @@ public class SettingsService : ISettingsService
             _currentSettings.Hardware.DefaultThreshold = th;
     }
 
+    /// <summary>异步保存当前设置到本地 JSON 文件(原子写入: 先写 .tmp 再 rename)</summary>
     public async Task SaveAsync(CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
