@@ -24,7 +24,7 @@
 
 <br/><br/>
 
-**[下载 Release(Release v1.0.0)](#) | [技术栈](#技术栈) | [完整开发路线](#路线图)**
+**[下载 Release(Release v1.0.0)](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/download/v1.0.0/SmartEdgeHMI-v1.0.0-win-x64.zip) | [技术栈](#技术栈) | [完整开发路线](#路线图)**
 
 </div>
 
