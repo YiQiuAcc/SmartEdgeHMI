@@ -10,10 +10,7 @@ using SmartEdgeHMI.Models.Messages;
 
 namespace SmartEdgeHMI.Communication;
 
-/// <summary>
-/// 设备通信协调器。 职责：指令下发（阈值设置、设备复位）+ 设备状态变更路由（通知所有协议解析器）。 原始字节流的路由已下沉到
-/// SerialPortService.ForwardDataLoopAsync。
-/// </summary>
+/// <summary>设备通信协调器。 职责: 指令下发(阈值设置、设备复位)+ 设备状态变更路由(通知所有协议解析器)</summary>
 public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
     IRecipient<DeviceStateChanged>
 {
@@ -51,6 +48,7 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
         }
     }
 
+    /// <summary>异步下发阈值数据到设备, 根据当前协议类型选择 JSON 或 Modbus 指令格式</summary>
     public async Task SendThresholdAsync(double value)
     {
         var protocol = _protocolConfig.SelectedProtocol;
@@ -76,7 +74,7 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
                     var modbus = (ModbusProtocolService)
                         _serviceProvider.GetRequiredKeyedService<IProtocolParser>("Modbus");
                     await modbus.WriteSingleRegisterAsync(portName,
-                        AppConstants.DefaultModbusSlaveAddress, ModbusProtocolService.RegisterThreshold, (ushort)Math.Round(value * 10));
+                        _protocolConfig.SlaveAddress, ModbusProtocolService.RegisterThreshold, (ushort)Math.Round(value * 10));
                     Log.Information("[Modbus] 下发阈值至 {Port}: {Value}°C (寄存器 {Raw})",
                         portName, value, (ushort)Math.Round(value * 10));
                     break;
@@ -85,6 +83,7 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
         }
     }
 
+    /// <summary>异步复位设备, 根据当前协议类型选择 JSON 或 Modbus 指令格式</summary>
     public async Task ResetDeviceAsync()
     {
         string? port = _protocolConfig.SelectedPort;
@@ -110,7 +109,7 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator,
                 var modbus = (ModbusProtocolService)
                     _serviceProvider.GetRequiredKeyedService<IProtocolParser>("Modbus");
                 await modbus.WriteSingleRegisterAsync(port,
-                    AppConstants.DefaultModbusSlaveAddress, ModbusProtocolService.RegisterReset, 1);
+                    _protocolConfig.SlaveAddress, ModbusProtocolService.RegisterReset, 1);
                 Log.Information("[Modbus] 复位指令已发送至 {Port}", port);
                 break;
             }

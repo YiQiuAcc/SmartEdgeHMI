@@ -185,8 +185,11 @@ public partial class MonitorViewModel : ViewModelBase,
 
     private async Task DebounceSaveThreshold(double value)
     {
-        _saveThresholdCts?.Cancel();
-        _saveThresholdCts?.Dispose();
+        if (_saveThresholdCts != null)
+        {
+            await _saveThresholdCts.CancelAsync();
+            _saveThresholdCts.Dispose();
+        }
         _saveThresholdCts = new CancellationTokenSource();
         var token = _saveThresholdCts.Token;
 
@@ -195,7 +198,10 @@ public partial class MonitorViewModel : ViewModelBase,
             await Task.Delay(AppConstants.SettingsSaveDebounceMs, token);
             await SaveThresholdAsync(value, CancellationToken.None);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // 预期内的取消操作
+        }
         catch (Exception ex)
         {
             Log.Error(ex, "阈值防抖保存失败");

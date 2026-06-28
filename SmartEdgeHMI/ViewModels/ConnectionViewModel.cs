@@ -9,6 +9,7 @@ using SmartEdgeHMI.Communication;
 using SmartEdgeHMI.Communication.Ports;
 using SmartEdgeHMI.Infrastructure;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.State;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -17,6 +18,7 @@ public partial class ConnectionViewModel : ViewModelBase,
     IProtocolConfig
 {
     private readonly ISerialPortService _serialPortService;
+    private readonly ISettingsService _settingsService;
     private readonly HashSet<string> _connectedPorts = [];
 
     public bool IsConnected => _connectedPorts.Count > 0;
@@ -35,6 +37,9 @@ public partial class ConnectionViewModel : ViewModelBase,
     [ObservableProperty]
     private string? _selectedBaudRate;
 
+    [ObservableProperty]
+    private byte _modbusSlaveId = 1;
+
     public string StatusColor => IsConnected ? "Green" : "Red";
 
     public ObservableCollection<string> AvailablePorts { get; set; }
@@ -48,21 +53,77 @@ public partial class ConnectionViewModel : ViewModelBase,
 
     public IEnumerable<string> ConnectedPorts => _connectedPorts;
 
-    public ConnectionViewModel(ISerialPortService serialPortService)
+    byte IProtocolConfig.SlaveAddress => ModbusSlaveId;
+
+    public ConnectionViewModel(ISerialPortService serialPortService, ISettingsService settingsService)
     {
         _serialPortService = serialPortService;
+        _settingsService = settingsService;
 
         string[] ports = _serialPortService.GetAvailablePortNames() ?? [];
         AvailablePorts = new ObservableCollection<string>(ports);
 
         LocalizationService.Instance.LanguageChanged += RefreshStatusText;
-
         WeakReferenceMessenger.Default.RegisterAll(this);
+
+        LoadSavedSettings();
+    }
+
+    private void LoadSavedSettings()
+    {
+        try
+        {
+            var conn = _settingsService.Current.Connection;
+            if (!string.IsNullOrEmpty(conn.ComPort))
+                SelectedPort = conn.ComPort;
+            if (conn.BaudRate > 0)
+                SelectedBaudRate = conn.BaudRate.ToString();
+            ModbusSlaveId = _settingsService.Current.Modbus.SlaveAddress;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "加载保存的通信设置失败");
+        }
+    }
+
+    partial void OnSelectedPortChanged(string? value)
+    {
+        if (value is not null)
+        {
+            _settingsService.Current.Connection.ComPort = value;
+            _ = SaveSettingsAsync();
+        }
+    }
+
+    partial void OnSelectedBaudRateChanged(string? value)
+    {
+        if (value is not null && int.TryParse(value, out int baud))
+        {
+            _settingsService.Current.Connection.BaudRate = baud;
+            _ = SaveSettingsAsync();
+        }
+    }
+
+    partial void OnModbusSlaveIdChanged(byte value)
+    {
+        _settingsService.Current.Modbus.SlaveAddress = value;
+        _ = SaveSettingsAsync();
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        try
+        {
+            await _settingsService.SaveAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "保存通信设置失败");
+        }
     }
 
     private void RefreshStatusText()
     {
-        // Recalculate status to reflect current language
         string notConnected = FindStringResource("Str_NotConnected", "未连接");
         string connectedTo = FindStringResource("Str_ConnectedTo", "已连接");
         string connectedMulti = FindStringResource("Str_ConnectedMulti", "已连接 {0} 个端口");

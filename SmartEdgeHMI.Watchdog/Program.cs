@@ -28,20 +28,17 @@ public static class Program
 
     public static async Task Main(string[] args)
     {
-        // 确保只运行一个 Watchdog 实例
+        // 只运行一个 Watchdog 实例
         using var mutex = new Mutex(true, MutexName, out bool isNewInstance);
         if (!isNewInstance)
         {
-            Console.WriteLine("Watchdog 已在运行中, 退出。");
+            await Console.Out.WriteLineAsync("Watchdog 已在运行中, 退出。");
             return;
         }
 
         ConfigureLogging();
 
         // 解析 HMI 可执行文件路径
-        // 1. 命令行参数指定
-        // 2. 与 Watchdog 同目录
-        // 3. 开发环境相对路径
         string currentDir = AppContext.BaseDirectory;
 
         if (args.Length >= 1 && File.Exists(args[0]))
@@ -51,10 +48,19 @@ public static class Program
         else
         {
             _hmiExecutablePath = Path.Combine(currentDir, "SmartEdgeHMI.exe");
+
             if (!File.Exists(_hmiExecutablePath))
             {
+#if DEBUG
                 _hmiExecutablePath = Path.GetFullPath(
                     Path.Combine(currentDir, "..", "..", "..", "..", "SmartEdgeHMI", "bin", "Debug", "net8.0-windows", "SmartEdgeHMI.exe"));
+#else
+    string productionFallback = Path.GetFullPath(Path.Combine(currentDir, "..", "SmartEdgeHMI.exe"));
+    if (File.Exists(productionFallback))
+    {
+        _hmiExecutablePath = productionFallback;
+    }
+#endif
             }
         }
         _hmiWorkingDirectory = Path.GetDirectoryName(_hmiExecutablePath);
@@ -62,18 +68,24 @@ public static class Program
         if (string.IsNullOrEmpty(_hmiExecutablePath) || !File.Exists(_hmiExecutablePath))
         {
             Log.Error("无法找到 HMI 主程序可执行文件, 请通过命令行参数指定路径。");
-            Console.Error.WriteLine("用法: SmartEdgeHMI.Watchdog.exe [HMI可执行文件路径]");
+            await Console.Error.WriteLineAsync("用法: SmartEdgeHMI.Watchdog.exe [HMI可执行文件路径]");
             return;
         }
 
-        Log.Information("Watchdog 守护进程启动, 监控目标: {Path}", _hmiExecutablePath);
-        Log.Information("工作目录: {Dir}", _hmiWorkingDirectory);
+        // 合并日志调用, 满足单代码块少于 3 个 Information 日志的限制
+        Log.Information("Watchdog 守护进程启动。监控目标: {Path}, 工作目录: {Dir}", _hmiExecutablePath, _hmiWorkingDirectory);
 
         // 启动 HMI 主进程
         StartHmiProcess();
 
-        // 启动命名管道服务端, 等待 HMI 连接并发送心跳
         using var heartbeatCts = new CancellationTokenSource();
+        // 监听控制台取消事件 (Ctrl+C)
+        Console.CancelKeyPress += async (_, e) =>
+        {
+            e.Cancel = true;
+            Log.Information("收到退出信号, 正在关闭守护进程...");
+            await heartbeatCts.CancelAsync();
+        };
 
         Task pipeTask = RunPipeServerAsync(heartbeatCts.Token);
         Task monitorTask = RunMonitorLoopAsync(heartbeatCts.Token);
@@ -82,7 +94,10 @@ public static class Program
         {
             await Task.WhenAll(pipeTask, monitorTask);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException ex)
+        {
+            Log.Debug(ex, "Watchdog 核心任务已被主动取消。");
+        }
         catch (Exception ex)
         {
             Log.Fatal(ex, "Watchdog 遭遇未处理异常, 退出。");
@@ -132,12 +147,11 @@ public static class Program
         }
         catch (Exception ex)
         {
-            Log.Fatal(ex, "无法启动 HMI 主进程！");
-            throw;
+            throw new InvalidOperationException($"Watchdog 尝试从路径启动 HMI 失败。当前配置路径: {_hmiExecutablePath}", ex);
         }
     }
 
-    /// <summary>命名管道服务端:等待 HMI 进程连接并持续接收心跳信号</summary>
+    /// <summary>命名管道服务端循环</summary>
     private static async Task RunPipeServerAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -147,52 +161,26 @@ public static class Program
                 await using var pipeServer = new NamedPipeServerStream(
                     PipeName,
                     PipeDirection.In,
-                    1,              // 最多 1 个客户端连接
+                    1,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.WriteThrough);
 
                 Log.Debug("Watchdog 等待 HMI 连接命名管道...");
 
-                // 等待 HMI 客户端连接(带超时)
-                var connectTask = pipeServer.WaitForConnectionAsync(ct);
-                // 每 5 秒检测是否需要中止等待
-                while (!connectTask.IsCompleted)
+                // 等待客户端连接
+                if (!await WaitForConnectionAsync(pipeServer, ct))
                 {
-                    await Task.Delay(1000, ct);
-                    if (ct.IsCancellationRequested) return;
+                    return;
                 }
-
-                await connectTask;
                 Log.Information("HMI 已连接到 Watchdog 命名管道。");
-
-                // 持续读取心跳数据
-                byte[] buffer = new byte[32];
-                while (!ct.IsCancellationRequested && pipeServer.IsConnected)
-                {
-                    try
-                    {
-                        int bytesRead = await pipeServer.ReadAsync(buffer, ct);
-                        if (bytesRead > 0)
-                        {
-                            string heartbeat = Encoding.UTF8.GetString(buffer, 0, bytesRead).TrimEnd('\0');
-                            _lastHeartbeat = DateTime.UtcNow;
-                            Log.Debug("[Heartbeat] 收到心跳: {Beat}", heartbeat);
-                        }
-                        else
-                        {
-                            // 对端关闭连接
-                            Log.Warning("HMI 关闭了管道连接, 等待重连...");
-                            break;
-                        }
-                    }
-                    catch (IOException ex)
-                    {
-                        Log.Warning(ex, "管道读取异常, HMI 可能已断开。");
-                        break;
-                    }
-                }
+                // 处理心跳读取循环
+                await HandlePipeReaderLoopAsync(pipeServer, ct);
             }
-            catch (OperationCanceledException) { return; }
+            catch (OperationCanceledException ex)
+            {
+                Log.Debug(ex, "管道服务端由于取消操作正常退出。");
+                return;
+            }
             catch (Exception ex)
             {
                 Log.Error(ex, "管道服务器循环异常, 将在 2 秒后重试。");
@@ -201,7 +189,49 @@ public static class Program
         }
     }
 
-    /// <summary>监控循环:定期检测心跳是否超时</summary>
+    /// <summary>等待命名的管道连接</summary>
+    private static async Task<bool> WaitForConnectionAsync(NamedPipeServerStream pipeServer, CancellationToken ct)
+    {
+        var connectTask = pipeServer.WaitForConnectionAsync(ct);
+        while (!connectTask.IsCompleted)
+        {
+            await Task.Delay(1000, ct);
+            if (ct.IsCancellationRequested) return false;
+        }
+        await connectTask;
+        return true;
+    }
+
+    /// <summary>处理管道内数据读取循环</summary>
+    private static async Task HandlePipeReaderLoopAsync(NamedPipeServerStream pipeServer, CancellationToken ct)
+    {
+        byte[] buffer = new byte[32];
+        while (!ct.IsCancellationRequested && pipeServer.IsConnected)
+        {
+            try
+            {
+                int bytesRead = await pipeServer.ReadAsync(buffer, ct);
+                if (bytesRead > 0)
+                {
+                    string heartbeat = Encoding.UTF8.GetString(buffer, 0, bytesRead).TrimEnd('\0');
+                    _lastHeartbeat = DateTime.UtcNow;
+                    Log.Debug("[Heartbeat] 收到心跳: {Beat}", heartbeat);
+                }
+                else
+                {
+                    Log.Warning("HMI 关闭了管道连接, 等待重连...");
+                    break;
+                }
+            }
+            catch (IOException ex)
+            {
+                Log.Warning(ex, "管道读取异常, HMI 可能已断开。");
+                break;
+            }
+        }
+    }
+
+    /// <summary>监控循环: 定期检测心跳是否超时</summary>
     private static async Task RunMonitorLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -215,26 +245,26 @@ public static class Program
                 // 如果 HMI 进程已退出, 立即重启
                 if (_hmiProcess?.HasExited == true)
                 {
-                    Log.Warning("HMI 主进程已退出 (ExitCode: {Code}), 正在重启...",
-                        _hmiProcess.ExitCode);
+                    Log.Warning("HMI 主进程已退出 (ExitCode: {Code}), 正在重启...", _hmiProcess.ExitCode);
                     StartHmiProcess();
                     continue;
                 }
 
                 // 如果超过心跳超时阈值且 HMI 仍在运行, 判定为无响应, 强制重启
-                if (_lastHeartbeat != DateTime.MinValue &&
-                    elapsedSinceHeartbeat.TotalMilliseconds > HeartbeatTimeoutMs)
+                if (_lastHeartbeat != DateTime.MinValue && elapsedSinceHeartbeat.TotalMilliseconds > HeartbeatTimeoutMs)
                 {
-                    Log.Warning("HMI 心跳超时 ({Seconds:F1}s 无心跳), 正在强制重启...",
-                        elapsedSinceHeartbeat.TotalSeconds);
+                    Log.Warning("HMI 心跳超时 ({Seconds:F1}s 无心跳), 正在强制重启...", elapsedSinceHeartbeat.TotalSeconds);
 
                     KillHmiProcess();
-                    // 等待进程完全退出
                     await Task.Delay(1000, ct);
                     StartHmiProcess();
                 }
             }
-            catch (OperationCanceledException) { return; }
+            catch (OperationCanceledException ex)
+            {
+                Log.Debug(ex, "监控循环已被正常取消。");
+                return;
+            }
             catch (Exception ex)
             {
                 Log.Error(ex, "监控循环异常");
@@ -249,7 +279,6 @@ public static class Program
 
         try
         {
-            // 尝试退出
             if (_hmiProcess.CloseMainWindow())
             {
                 Log.Information("已发送关闭窗口消息到 HMI 进程 (PID: {Pid})", _hmiProcess.Id);
@@ -259,7 +288,6 @@ public static class Program
                 }
             }
 
-            // 强制终止
             _hmiProcess.Kill(entireProcessTree: true);
             Log.Warning("已强制终止 HMI 进程树 (PID: {Pid})", _hmiProcess.Id);
         }

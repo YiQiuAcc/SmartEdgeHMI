@@ -17,10 +17,13 @@
     <Color x:Key="InfoColor">#3B99FC</Color>
 
     <!--  强调色  -->
+    <Color x:Key="ErrorHoverColor">#FF5262</Color>
+    <Color x:Key="ErrorPressedColor">#A8232E</Color>
     <Color x:Key="AccentColor">#0078D4</Color>
 
-    <!--  SolidColorBrush 引用  -->
     <SolidColorBrush x:Key="PrimaryBgBrush" Color="{StaticResource PrimaryBgColor}" />
     <SolidColorBrush x:Key="ErrorBrush" Color="{StaticResource ErrorColor}" />
+    <SolidColorBrush x:Key="ErrorHoverBrush" Color="{StaticResource ErrorHoverColor}" />
+    <SolidColorBrush x:Key="ErrorPressedBrush" Color="{StaticResource ErrorPressedColor}" />
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
 </ResourceDictionary>

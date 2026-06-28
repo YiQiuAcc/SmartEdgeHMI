@@ -30,92 +30,125 @@
         <!--  连接控制区域与工具栏  -->
         <Grid Grid.Row="0">
             <StackPanel Orientation="Vertical">
-                <StackPanel Margin="0,0,0,5" Orientation="Horizontal">
-                    <Ellipse
-                        Width="16"
-                        Height="16"
-                        Margin="0,0,10,0"
-                        Fill="{Binding Connection.StatusColor, FallbackValue=Red}" />
-                    <TextBlock
-                        Width="100"
-                        Margin="0,0,15,0"
-                        VerticalAlignment="Center"
-                        Text="{Binding Connection.StatusText}" />
-                    <TextBlock
-                        Margin="0,0,5,0"
-                        VerticalAlignment="Center"
-                        Text="{DynamicResource Str_Port}" />
-                    <ComboBox
-                        Width="80"
-                        Margin="0,0,10,0"
-                        VerticalAlignment="Center"
-                        ItemsSource="{Binding Connection.AvailablePorts}"
-                        SelectedItem="{Binding Connection.SelectedPort, Mode=TwoWay}" />
-                    <TextBlock
-                        Margin="0,0,5,0"
-                        VerticalAlignment="Center"
-                        Text="{DynamicResource Str_BaudRate}" />
-                    <ComboBox
-                        Width="80"
-                        Margin="0,0,10,0"
-                        VerticalAlignment="Center"
-                        ItemsSource="{Binding Connection.AvailableBaudRate}"
-                        SelectedItem="{Binding Connection.SelectedBaudRate, Mode=TwoWay}" />
-                    <TextBlock
-                        Margin="0,0,5,0"
-                        VerticalAlignment="Center"
-                        Text="{DynamicResource Str_Protocol}" />
-                    <ComboBox
-                        Width="80"
-                        Margin="0,0,10,0"
-                        VerticalAlignment="Center"
-                        ItemsSource="{Binding Connection.AvailableProtocols}"
-                        SelectedItem="{Binding Connection.SelectedProtocol, Mode=TwoWay}" />
-                    <Button
-                        Width="90"
-                        Padding="5"
-                        Command="{Binding Connection.ToggleConnectCommand}">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Content" Value="{DynamicResource Str_Connect}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Connection.IsSelectedPortConnected}" Value="True">
-                                        <Setter Property="Content" Value="{DynamicResource Str_Disconnect}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-
-                    <Border Width="20" />
-
+                <DockPanel Margin="0,0,0,5">
                     <Button
                         Width="40"
                         Height="28"
                         Padding="4,0"
                         Command="{x:Static app:App.ToggleLanguageCommand}"
                         Content="{DynamicResource Str_LanguageToggle}"
+                        DockPanel.Dock="Right"
                         FontSize="12"
                         ToolTip="Switch Language / 切换语言" />
 
-                    <Border Width="20" />
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse
+                            Width="16"
+                            Height="16"
+                            Margin="0,0,10,0"
+                            Fill="{Binding Connection.StatusColor, FallbackValue=Red}" />
+                        <TextBlock
+                            Width="100"
+                            Margin="0,0,15,0"
+                            VerticalAlignment="Center"
+                            Text="{Binding Connection.StatusText}" />
+                        <TextBlock
+                            Margin="0,0,5,0"
+                            VerticalAlignment="Center"
+                            Text="{DynamicResource Str_Port}" />
+                        <ComboBox
+                            Width="80"
+                            Margin="0,0,10,0"
+                            VerticalAlignment="Center"
+                            ItemsSource="{Binding Connection.AvailablePorts}"
+                            SelectedItem="{Binding Connection.SelectedPort, Mode=TwoWay}" />
+                        <TextBlock
+                            Margin="0,0,5,0"
+                            VerticalAlignment="Center"
+                            Text="{DynamicResource Str_BaudRate}" />
+                        <ComboBox
+                            Width="80"
+                            Margin="0,0,10,0"
+                            VerticalAlignment="Center"
+                            ItemsSource="{Binding Connection.AvailableBaudRate}"
+                            SelectedItem="{Binding Connection.SelectedBaudRate, Mode=TwoWay}" />
+                        <TextBlock
+                            Margin="0,0,5,0"
+                            VerticalAlignment="Center"
+                            Text="{DynamicResource Str_Protocol}" />
+                        <ComboBox
+                            Width="80"
+                            Margin="0,0,10,0"
+                            VerticalAlignment="Center"
+                            ItemsSource="{Binding Connection.AvailableProtocols}"
+                            SelectedItem="{Binding Connection.SelectedProtocol, Mode=TwoWay}" />
 
-                    <Button
-                        Width="100"
-                        Height="28"
-                        Command="{Binding Trend.ToggleModeCommand}">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Content" Value="{DynamicResource Str_HistoryMode}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Trend.IsHistoryMode}" Value="True">
-                                        <Setter Property="Content" Value="{DynamicResource Str_LiveMode}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                </StackPanel>
+                        <TextBlock
+                            x:Name="SlaveIdLabel"
+                            Margin="0,0,5,0"
+                            VerticalAlignment="Center"
+                            Text="Slave ID:">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Connection.SelectedProtocol}" Value="Modbus">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBox
+                            x:Name="SlaveIdBox"
+                            Width="40"
+                            Margin="0,0,10,0"
+                            VerticalAlignment="Center"
+                            Text="{Binding Connection.ModbusSlaveId, UpdateSourceTrigger=PropertyChanged}">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Connection.SelectedProtocol}" Value="Modbus">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+
+                        <Button Width="80" Command="{Binding Connection.ToggleConnectCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Content" Value="{DynamicResource Str_Connect}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Connection.IsSelectedPortConnected}" Value="True">
+                                            <Setter Property="Content" Value="{DynamicResource Str_Disconnect}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+
+                        <Border Width="20" />
+
+                        <Button
+                            Width="90"
+                            Height="28"
+                            Command="{Binding Trend.ToggleModeCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Content" Value="{DynamicResource Str_HistoryMode}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Trend.IsHistoryMode}" Value="True">
+                                            <Setter Property="Content" Value="{DynamicResource Str_LiveMode}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </DockPanel>
 
                 <StackPanel
                     Margin="0,5,0,5"
@@ -198,10 +231,9 @@
                 <Button
                     Height="40"
                     VerticalAlignment="Center"
-                    Background="DarkRed"
                     Command="{Binding Monitor.ResetDeviceCommand}"
                     Content="{DynamicResource Str_ResetDevice}"
-                    Foreground="White" />
+                    Style="{StaticResource DangerButtonStyle}" />
             </StackPanel>
 
             <Grid Grid.Column="1" Margin="10,0,0,0">

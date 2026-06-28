@@ -5,6 +5,7 @@ using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.State;
 
+/// <summary>ISA-18.2 报警状态机: 管理报警的 UNACK/ACK/RTN_UNACK/NORMAL 四种状态转换</summary>
 public class AlarmStateMachine : IAlarmStateMachine
 {
     private sealed class AlarmContext

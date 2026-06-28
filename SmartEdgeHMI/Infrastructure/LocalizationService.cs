@@ -4,6 +4,7 @@ using Serilog;
 
 namespace SmartEdgeHMI.Infrastructure;
 
+/// <summary>多语言国际化服务: 运行时切换资源字典, 无需重启应用</summary>
 public class LocalizationService
 {
     private const string StringsPath = "/Resources/Strings.{0}.xaml";
@@ -16,6 +17,7 @@ public class LocalizationService
 
     private readonly List<ResourceDictionary> _loadedDictionaries = [];
 
+    /// <summary>切换运行时语言并加载对应资源字典</summary>
     public void SetLanguage(string cultureName)
     {
         CurrentCulture = new CultureInfo(cultureName);

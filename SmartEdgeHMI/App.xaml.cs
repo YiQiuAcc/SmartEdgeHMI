@@ -14,21 +14,27 @@ namespace SmartEdgeHMI;
 
 public partial class App : Application
 {
-    private static Mutex? _appMutex;
+    private Mutex? _appMutex;
     private const string AppGuid = "Global\\SmartEdgeHMI_Unique_Application_Mutex_Guid_2026";
+
+    private const string ZhCnCulture = "zh-CN";
+    private const string EnUsCulture = "en-US";
+
     public static IServiceProvider ServiceProvider { get; private set; } = null!;
     public static IConfiguration Configuration { get; private set; } = null!;
 
     public static readonly ICommand ToggleLanguageCommand = new RelayCommand(
         () => LocalizationService.Instance.SetLanguage(
-            LocalizationService.Instance.CurrentCulture.Name == "zh-CN" ? "en-US" : "zh-CN"));
+            LocalizationService.Instance.CurrentCulture.Name == ZhCnCulture ? EnUsCulture : ZhCnCulture));
 
     public static string LanguageButtonText =>
-        LocalizationService.Instance.CurrentCulture.Name == "zh-CN" ? "EN" : "中文";
+        LocalizationService.Instance.CurrentCulture.Name == ZhCnCulture ? "EN" : "中文";
 
     private sealed class RelayCommand(Action execute) : ICommand
     {
+#pragma warning disable CS0067
         public event EventHandler? CanExecuteChanged;
+#pragma warning restore CS0067
 
         public bool CanExecute(object? parameter) => true;
 
@@ -61,6 +67,12 @@ public partial class App : Application
             .CreateLogger();
     }
 
+    private static void SetStaticDependencies(IConfiguration configuration, IServiceProvider serviceProvider)
+    {
+        Configuration = configuration;
+        ServiceProvider = serviceProvider;
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         _appMutex = new Mutex(true, AppGuid, out bool isNewInstance);
@@ -72,41 +84,39 @@ public partial class App : Application
         }
 
         base.OnStartup(e);
-        // 注册事件
         DispatcherUnhandledException += App_DispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
 
-        // 全局配置
-        Configuration = new ConfigurationBuilder()
+        var config = new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
             .Build();
 
-        // 注册并构建服务容器
-        ServiceProvider = new ServiceCollection()
-            .AddSingleton(Configuration)
+        var services = new ServiceCollection()
+            .AddSingleton<IConfiguration>(config)
             .AddAppServices()
             .BuildServiceProvider();
 
-        // 初始化数据库
+        // 间接安全地初始化静态依赖
+        SetStaticDependencies(config, services);
+
         ServiceProvider.GetRequiredService<SqliteRepository>()
             .InitializeDatabaseAsync()
             .GetAwaiter().GetResult();
 
-        // 启动 Watchdog 心跳客户端(若 Watchdog 未运行则静默重连)
+        // 启动 Watchdog 心跳客户端
         var heartbeatClient = ServiceProvider.GetRequiredService<WatchdogHeartbeatClient>();
         heartbeatClient.Start();
 
-        // 初始化国际化(加载默认中文资源)
-        LocalizationService.Instance.SetLanguage("zh-CN");
+        LocalizationService.Instance.SetLanguage(ZhCnCulture);
 
         var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
         Log.Information("SmartEdgeHMI 应用程序已成功启动。");
     }
 
-    private void App_DispatcherUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e)
+    private static void App_DispatcherUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Log.Error(e.Exception, "【UI主线程】遇到未处理异常");
 
@@ -122,7 +132,7 @@ public partial class App : Application
         MessageBox.Show($"程序遇到意外错误, 已记录到日志, 请检查操作。\n摘要: {e.Exception.Message}", "意外错误", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
-    private void CurrentDomain_UnhandledException(object? sender, UnhandledExceptionEventArgs e)
+    private static void CurrentDomain_UnhandledException(object? sender, UnhandledExceptionEventArgs e)
     {
         var ex = e.ExceptionObject as Exception;
 
@@ -138,7 +148,7 @@ public partial class App : Application
         }
     }
 
-    private void TaskScheduler_UnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    private static void TaskScheduler_UnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
         Log.Error(e.Exception, "【Task异步任务】未观察到异常 (UnobservedTaskException)");
         e.SetObserved();
@@ -150,7 +160,6 @@ public partial class App : Application
         {
             Log.Information("SmartEdgeHMI 应用程序正在退出。退出码: {Code}", e.ApplicationExitCode);
 
-            // 停止 Watchdog 心跳
             var heartbeatClient = ServiceProvider.GetService<WatchdogHeartbeatClient>();
             heartbeatClient?.Dispose();
 
@@ -163,7 +172,14 @@ public partial class App : Application
         finally
         {
             Log.CloseAndFlush();
-            try { _appMutex?.ReleaseMutex(); } catch (ApplicationException) { }
+            try
+            {
+                _appMutex?.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+                // 当前线程未拥有该 Mutex 或其已被自动释放, 安全忽略。
+            }
             _appMutex?.Dispose();
             base.OnExit(e);
         }

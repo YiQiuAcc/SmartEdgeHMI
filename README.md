@@ -315,4 +315,4 @@ dotnet test SmartEdgeHMI.Tests/SmartEdgeHMI.Tests.csproj
 
 ## 路线图
 
-详见 [ROADMAP.md](ROADMAP.md) — 包含多协议扩展、持久化优化、CI/CD 流水线等规划。
+详见 [ROADMAP.md](ROADMAP.md) — 包含多协议扩展、持久化优化、工程化等规划。
