@@ -1,10 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
-using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Data.Repositories;
-using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Database.Repositories;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -24,6 +22,9 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
 
     public static int[] TargetPointOptions { get; } = [500, 1000, 2000, 5000];
 
+    public event Action<IReadOnlyList<SensorReadingRecord>>? HistoryDataLoaded;
+    public event Action? LiveModeRestored;
+
     [RelayCommand]
     private async Task LoadTrendAsync()
     {
@@ -33,8 +34,7 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
                 StartTime, EndTime, TargetPoints);
 
             var data = await telemetryRepo.GetTelemetryHistoryAsync(StartTime, EndTime, TargetPoints);
-
-            WeakReferenceMessenger.Default.Send(new TrendDataLoaded(AppConstants.DefaultDeviceName, data));
+            HistoryDataLoaded?.Invoke(data);
 
             Log.Information("历史趋势加载完成, 返回 {Count} 个数据点", data.Count);
         }
@@ -53,8 +53,6 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
     partial void OnIsHistoryModeChanged(bool value)
     {
         if (!value)
-        {
-            WeakReferenceMessenger.Default.Send(new TrendDataLoaded(string.Empty, []));
-        }
+            LiveModeRestored?.Invoke();
     }
 }

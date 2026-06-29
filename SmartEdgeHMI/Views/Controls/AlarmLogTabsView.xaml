@@ -1,0 +1,134 @@
+<UserControl
+    x:Class="SmartEdgeHMI.Views.Controls.AlarmLogTabsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:SmartEdgeHMI.Views">
+
+    <Grid>
+        <TabControl>
+            <TabItem FontSize="16">
+                <TabItem.Header>
+                    <TextBlock Text="{DynamicResource Str_AlarmView}" />
+                </TabItem.Header>
+                <DataGrid
+                    AutoGenerateColumns="False"
+                    CanUserAddRows="False"
+                    FontSize="14"
+                    HeadersVisibility="Column"
+                    IsReadOnly="True"
+                    ItemsSource="{Binding AlarmHistory.AlarmRecords}"
+                    RowHeight="30">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="UNACK">
+                                    <Setter Property="Background" Value="#4B0000" />
+                                    <Setter Property="Foreground" Value="White" />
+                                    <Setter Property="FontWeight" Value="Bold" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="RTN_UNACK">
+                                    <Setter Property="Background" Value="#2A3A2A" />
+                                    <Setter Property="Foreground" Value="White" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Width="160" Binding="{Binding Timestamp, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}">
+                            <DataGridTextColumn.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{DynamicResource Str_Time}" />
+                                </DataTemplate>
+                            </DataGridTextColumn.HeaderTemplate>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Width="100" Binding="{Binding DeviceId}">
+                            <DataGridTextColumn.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{DynamicResource Str_DeviceId}" />
+                                </DataTemplate>
+                            </DataGridTextColumn.HeaderTemplate>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Width="150" Binding="{Binding AlarmCode}">
+                            <DataGridTextColumn.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{DynamicResource Str_AlarmCode}" />
+                                </DataTemplate>
+                            </DataGridTextColumn.HeaderTemplate>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Width="80" Binding="{Binding State}">
+                            <DataGridTextColumn.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{DynamicResource Str_Status}" />
+                                </DataTemplate>
+                            </DataGridTextColumn.HeaderTemplate>
+                        </DataGridTextColumn>
+                        <DataGridTemplateColumn Width="*">
+                            <DataGridTemplateColumn.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{DynamicResource Str_Action}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.HeaderTemplate>
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button
+                                        Width="60"
+                                        Padding="5,2"
+                                        HorizontalAlignment="Center"
+                                        Command="{Binding DataContext.AlarmHistory.AcknowledgeAlarmCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding DeviceId}"
+                                        Content="{DynamicResource Str_Acknowledge}"
+                                        FontSize="13"
+                                        Visibility="{Binding State, Converter={StaticResource AckVis}}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem FontSize="16">
+                <TabItem.Header>
+                    <TextBlock Text="{DynamicResource Str_SystemLog}" />
+                </TabItem.Header>
+                <DataGrid
+                    AutoGenerateColumns="False"
+                    CanUserAddRows="False"
+                    FontSize="14"
+                    HeadersVisibility="Column"
+                    IsReadOnly="True"
+                    ItemsSource="{Binding LogConsole.SystemLogs}"
+                    RowHeight="30">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Level}" Value="ERROR">
+                                    <Setter Property="Foreground" Value="Red" />
+                                    <Setter Property="FontWeight" Value="Bold" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn
+                            Width="160"
+                            Binding="{Binding Timestamp, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"
+                            Header="Time" />
+                        <DataGridTextColumn Width="80" Binding="{Binding Level}" Header="Level" />
+                        <DataGridTextColumn Width="*" Binding="{Binding Message}" Header="Message" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+        </TabControl>
+
+        <Button
+            Height="28"
+            Margin="0,0,6,0"
+            Padding="12,0"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Command="{Binding Monitor.AcknowledgeAllAlarmsCommand}"
+            Content="{DynamicResource Str_AcknowledgeAll}"
+            FontSize="14"
+            IsEnabled="{Binding Monitor.HasPendingAlarms}" />
+    </Grid>
+</UserControl>

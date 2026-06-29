@@ -2,8 +2,9 @@ using System.ComponentModel;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.Messaging;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Infrastructure.Logging;
-using SmartEdgeHMI.Infrastructure.UI;
+using SmartEdgeHMI.MachineState;
+using SmartEdgeHMI.Utils.Logging;
+using SmartEdgeHMI.Utils.UI;
 using SmartEdgeHMI.Models.Messages;
 
 namespace SmartEdgeHMI.ViewModels;
@@ -11,10 +12,14 @@ namespace SmartEdgeHMI.ViewModels;
 public class LogConsoleViewModel : ViewModelBase,
     IRecipient<LogUpdate>
 {
+    private readonly ISettingsService _settingsService;
+
     public BulkObservableCollection<SystemLogModel> SystemLogs { get; } = [];
 
-    public LogConsoleViewModel()
+    public LogConsoleViewModel(ISettingsService settingsService)
     {
+        _settingsService = settingsService;
+
         EnableCollectionSynchronization(SystemLogs);
 
         var view = CollectionViewSource.GetDefaultView(SystemLogs);
@@ -28,7 +33,7 @@ public class LogConsoleViewModel : ViewModelBase,
         DispatchToUI(() =>
         {
             SystemLogs.Add(message.LogData);
-            if (SystemLogs.Count > AppConstants.MaxLogEntries)
+            if (SystemLogs.Count > _settingsService.Current.Logging.MaxLogEntries)
                 SystemLogs.RemoveAt(0);
         });
     }

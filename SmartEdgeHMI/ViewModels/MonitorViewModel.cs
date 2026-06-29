@@ -4,19 +4,17 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Communication;
-using SmartEdgeHMI.Data.Entities;
-using SmartEdgeHMI.Data.Repositories;
+using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Database.Repositories;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.State;
+using SmartEdgeHMI.Protocols;
+using SmartEdgeHMI.MachineState;
 
 namespace SmartEdgeHMI.ViewModels;
 
 public partial class MonitorViewModel : ViewModelBase,
-    IRecipient<DeviceTelemetry>,
-    IRecipient<SensorReading>,
-    IRecipient<DeviceStateChanged>
+    IRecipient<DeviceTelemetry>
 {
     private readonly ISettingsService _settingsService;
     private readonly IDeviceCommunicationCoordinator _coordinator;
@@ -24,6 +22,7 @@ public partial class MonitorViewModel : ViewModelBase,
     private readonly ITelemetryRepository _telemetryRepo;
     private readonly IAlarmRepository _alarmRepo;
     private readonly IDeviceStateContainer _deviceState;
+    private readonly ITransportService _transport;
 
     private CancellationTokenSource? _saveThresholdCts;
     private bool _isInitializing;
@@ -42,7 +41,8 @@ public partial class MonitorViewModel : ViewModelBase,
         IAlarmStateMachine alarmStateMachine,
         ITelemetryRepository telemetryRepo,
         IAlarmRepository alarmRepo,
-        IDeviceStateContainer deviceState)
+        IDeviceStateContainer deviceState,
+        ITransportService transport)
     {
         _settingsService = settingsService;
         _coordinator = coordinator;
@@ -50,18 +50,75 @@ public partial class MonitorViewModel : ViewModelBase,
         _telemetryRepo = telemetryRepo;
         _alarmRepo = alarmRepo;
         _deviceState = deviceState;
+        _transport = transport;
 
-        _deviceState.PropertyChanged += OnDeviceStateChanged;
+        _deviceState.PropertyChanged += OnDeviceStatePropertyChanged;
         _alarmStateMachine.AlarmStatesChanged += OnAlarmStatesChanged;
+        _transport.StateChanged += OnSerialPortStateChanged;
 
         WeakReferenceMessenger.Default.RegisterAll(this);
         LoadSavedThreshold();
     }
 
-    private void OnDeviceStateChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnSerialPortStateChanged(string portName, ConnectionState state)
+    {
+        _deviceState.UpdateConnectionState(portName, state);
+
+        if (state == ConnectionState.Connected)
+            _ = SaveThresholdSafeAsync(AlarmThreshold);
+    }
+
+    private void OnDeviceStatePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(IDeviceStateContainer.LatestTemperature))
+        {
             OnPropertyChanged(nameof(CurrentTemperature));
+            _ = OnNewTelemetryAsync();
+        }
+    }
+
+    private async Task OnNewTelemetryAsync()
+    {
+        try
+        {
+            var record = new SensorReadingRecord
+            {
+                DeviceId = AppConstants.DefaultDeviceName,
+                Timestamp = DateTime.Now,
+                Temperature = _deviceState.LatestTemperature,
+                Humidity = _deviceState.LatestHumidity,
+                StatusCode = _deviceState.LatestDeviceStatus,
+                ErrorCode = _deviceState.LatestErrorCode,
+                QualityCode = _deviceState.LatestQuality
+            };
+            _ = _telemetryRepo.SaveTelemetryAsync(record);
+
+            var payload = new TelemetryPayload
+            {
+                DeviceId = AppConstants.DefaultDeviceName,
+                Temperature = _deviceState.LatestTemperature,
+                Humidity = _deviceState.LatestHumidity,
+                StatusCode = _deviceState.LatestDeviceStatus,
+                ErrorCode = _deviceState.LatestErrorCode,
+                QualityCode = _deviceState.LatestQuality
+            };
+
+            var alarmRecord = _alarmStateMachine.Evaluate(payload);
+            if (alarmRecord is not null)
+                _ = HandleNewAlarmAsync(alarmRecord);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "处理新遥测数据异常");
+        }
+    }
+
+    public void Receive(DeviceTelemetry message)
+    {
+        var payload = message.Payload;
+        _deviceState.UpdateTelemetry(message.PortName, payload.Temperature,
+            payload.Humidity, payload.StatusCode, payload.ErrorCode, payload.QualityCode);
+        // OnNewTelemetryAsync will be triggered by PropertyChanged
     }
 
     private void OnAlarmStatesChanged()
@@ -115,68 +172,6 @@ public partial class MonitorViewModel : ViewModelBase,
         return id;
     }
 
-    public void Receive(DeviceTelemetry message)
-    {
-        var payload = message.Payload;
-
-        _deviceState.UpdateTelemetry(message.PortName, payload.Temperature,
-            payload.Humidity, payload.StatusCode, payload.ErrorCode, payload.QualityCode);
-
-        _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingRecord
-        {
-            DeviceId = payload.DeviceId,
-            Timestamp = DateTime.Now,
-            Temperature = payload.Temperature,
-            Humidity = payload.Humidity,
-            StatusCode = payload.StatusCode,
-            ErrorCode = payload.ErrorCode,
-            QualityCode = payload.QualityCode
-        });
-
-        var alarmRecord = _alarmStateMachine.Evaluate(payload);
-        if (alarmRecord is not null)
-            _ = HandleNewAlarmAsync(alarmRecord);
-    }
-
-    public void Receive(SensorReading message)
-    {
-        _deviceState.UpdateTelemetry(message.PortName, message.Temperature,
-            message.Humidity, message.StatusCode, message.ErrorCode, DataQuality.Good);
-
-        _ = _telemetryRepo.SaveTelemetryAsync(new SensorReadingRecord
-        {
-            DeviceId = AppConstants.DefaultDeviceName,
-            Timestamp = DateTime.Now,
-            Temperature = message.Temperature,
-            Humidity = message.Humidity,
-            StatusCode = message.StatusCode,
-            ErrorCode = message.ErrorCode,
-            QualityCode = DataQuality.Good
-        });
-
-        var payload = new TelemetryPayload
-        {
-            DeviceId = AppConstants.DefaultDeviceName,
-            Temperature = message.Temperature,
-            Humidity = message.Humidity,
-            StatusCode = message.StatusCode,
-            ErrorCode = message.ErrorCode,
-            QualityCode = DataQuality.Good
-        };
-
-        var alarmRecord = _alarmStateMachine.Evaluate(payload);
-        if (alarmRecord is not null)
-            _ = HandleNewAlarmAsync(alarmRecord);
-    }
-
-    public void Receive(DeviceStateChanged message)
-    {
-        _deviceState.UpdateConnectionState(message.PortName, message.State);
-
-        if (message.State == ConnectionState.Connected)
-            _ = SaveThresholdSafeAsync(AlarmThreshold);
-    }
-
     partial void OnAlarmThresholdChanged(double value)
     {
         if (_isInitializing) return;
@@ -198,10 +193,7 @@ public partial class MonitorViewModel : ViewModelBase,
             await Task.Delay(AppConstants.SettingsSaveDebounceMs, token);
             await SaveThresholdAsync(value, CancellationToken.None);
         }
-        catch (OperationCanceledException)
-        {
-            // 预期内的取消操作
-        }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             Log.Error(ex, "阈值防抖保存失败");
