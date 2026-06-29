@@ -7,39 +7,27 @@ using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.Protocols.Services;
+using SmartEdgeHMI.Protocols.Parsers;
 
-namespace SmartEdgeHMI.Protocols.Ports;
+namespace SmartEdgeHMI.Protocols.Transports.Serial;
 
 /// <summary>
 /// 高性能全双工异步模型串口物理层服务
 /// - ReadLoop: 后台线程无锁、无超时挂起死等串口，读到原始流立刻无脑塞给上层 Pipeline 解析器。
 /// - WriteLock: 仅用于保护发送端，防止多线程并发写入时字节流混杂。
 /// </summary>
-public class SerialPortService : ISerialPortService, IDisposable
+public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortService, IDisposable
 {
-    private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, PortContext> _activePorts = new();
     private bool _disposed;
 
     public event Action<string, ConnectionState>? StateChanged;
 
-    private sealed class PortContext
+    private sealed class PortContext(SerialPort port, CancellationTokenSource cts)
     {
-        public SerialPort Port { get; }
-        public CancellationTokenSource Cts { get; }
+        public SerialPort Port { get; } = port;
+        public CancellationTokenSource Cts { get; } = cts;
         public SemaphoreSlim WriteLock { get; } = new(1, 1);
-
-        public PortContext(SerialPort port, CancellationTokenSource cts)
-        {
-            Port = port;
-            Cts = cts;
-        }
-    }
-
-    public SerialPortService(IServiceProvider serviceProvider)
-    {
-        _serviceProvider = serviceProvider;
     }
 
     public string[] GetAvailablePortNames() => SerialPort.GetPortNames();
@@ -47,8 +35,6 @@ public class SerialPortService : ISerialPortService, IDisposable
     public void OpenPort(string portName, int baudRate)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-
-        Log.Information("[SerialPort] 打开串口 {Port}, 波特率 {Baud}", portName, baudRate);
 
         var serialPort = new SerialPort(portName, baudRate)
         {
@@ -60,8 +46,7 @@ public class SerialPortService : ISerialPortService, IDisposable
 
         var cts = new CancellationTokenSource();
         serialPort.Open();
-        Log.Information("[SerialPort] {Port} 已打开", portName);
-
+        Log.Information("[SerialPort] 已打开串口 {Port}, 波特率 {Baud}", portName, baudRate);
         var context = new PortContext(serialPort, cts);
         if (!_activePorts.TryAdd(portName, context))
         {
@@ -75,7 +60,6 @@ public class SerialPortService : ISerialPortService, IDisposable
 
         // 启动后台全双工独立读线程
         _ = Task.Run(() => ReadLoopAsync(portName, context), cts.Token);
-        Log.Information("[SerialPort] {Port} 连接成功", portName);
     }
 
     /// <summary>无锁、无超时打断，全双工读取循环</summary>
@@ -84,7 +68,7 @@ public class SerialPortService : ISerialPortService, IDisposable
         byte[] buffer = ArrayPool<byte>.Shared.Rent(4096);
         try
         {
-            var protocolConfig = _serviceProvider.GetRequiredService<IProtocolConfig>();
+            var protocolConfig = serviceProvider.GetRequiredService<IProtocolConfig>();
 
             while (!ctx.Cts.Token.IsCancellationRequested)
             {
@@ -113,7 +97,7 @@ public class SerialPortService : ISerialPortService, IDisposable
                 {
                     try
                     {
-                        var parser = _serviceProvider.GetRequiredKeyedService<IProtocolParser>(key);
+                        var parser = serviceProvider.GetRequiredKeyedService<IProtocolParser>(key);
                         await parser.OnDataReceivedAsync(portName, chunk);
                     }
                     catch (Exception ex)
@@ -123,7 +107,10 @@ public class SerialPortService : ISerialPortService, IDisposable
                 }
             }
         }
-        catch (OperationCanceledException) { } // 串口关闭引发的正常退出
+        catch (OperationCanceledException)
+        {
+            // 串口关闭引发的正常退出
+        }
         catch (IOException ex) when (!ctx.Cts.Token.IsCancellationRequested)
         {
             Log.Warning(ex, "[SerialPort] {Port} 读取 I/O 错误, 后台读循环退出", portName);
@@ -138,9 +125,9 @@ public class SerialPortService : ISerialPortService, IDisposable
         }
     }
 
-    public async Task WriteBytesAsync(string portName, byte[] data, int length)
+    public async Task WriteBytesAsync(string endpoint, byte[] data, int length)
     {
-        if (!_activePorts.TryGetValue(portName, out var ctx) || !ctx.Port.IsOpen) return;
+        if (!_activePorts.TryGetValue(endpoint, out var ctx) || !ctx.Port.IsOpen) return;
 
         // 使用 WriteLock 独立保护发送端
         await ctx.WriteLock.WaitAsync(ctx.Cts.Token);
@@ -151,7 +138,7 @@ public class SerialPortService : ISerialPortService, IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "[SerialPort] {Port} 写入失败 ({Len}B)", portName, length);
+            Log.Error(ex, "[SerialPort] {Port} 写入失败 ({Len}B)", endpoint, length);
         }
         finally
         {
@@ -159,9 +146,9 @@ public class SerialPortService : ISerialPortService, IDisposable
         }
     }
 
-    public async Task WriteStringAsync(string portName, string text)
+    public async Task WriteStringAsync(string endpoint, string text)
     {
-        if (!_activePorts.TryGetValue(portName, out var ctx) || !ctx.Port.IsOpen) return;
+        if (!_activePorts.TryGetValue(endpoint, out var ctx) || !ctx.Port.IsOpen) return;
 
         byte[] data = Encoding.UTF8.GetBytes(text + "\n");
         await ctx.WriteLock.WaitAsync(ctx.Cts.Token);
@@ -172,7 +159,7 @@ public class SerialPortService : ISerialPortService, IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "[SerialPort] {Port} 写入失败", portName);
+            Log.Error(ex, "[SerialPort] {Port} 写入失败", endpoint);
         }
         finally
         {
@@ -184,7 +171,6 @@ public class SerialPortService : ISerialPortService, IDisposable
     {
         if (_activePorts.TryRemove(portName, out var ctx))
         {
-            Log.Information("[SerialPort] {Port} 正在关闭...", portName);
             ctx.Cts.Cancel();
             try { if (ctx.Port.IsOpen) ctx.Port.Close(); }
             catch (Exception ex) { Log.Warning(ex, "[SerialPort] {Port} 关闭串口异常", portName); }
@@ -201,11 +187,29 @@ public class SerialPortService : ISerialPortService, IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        foreach (string portName in _activePorts.Keys.ToList())
-            ClosePort(portName);
-        _activePorts.Clear();
+        Dispose(true);
         GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        if (disposing)
+        {
+            // 迭代所有当前激活/打开的串口，安全关闭物理连接
+            foreach (string portName in _activePorts.Keys.ToList())
+            {
+                try
+                {
+                    ClosePort(portName);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "[SerialPort] 全局释放串口 {Port} 时捕获到异常", portName);
+                }
+            }
+            _activePorts.Clear();
+        }
+        _disposed = true;
     }
 }

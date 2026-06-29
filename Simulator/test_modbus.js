@@ -26,9 +26,7 @@ async function run() {
       `[${new Date().toLocaleTimeString()}] 串口 ${PORT_NAME} 打开成功！`,
     );
 
-    // 【关键时序】等待 2 秒
-    // CH340 在打开瞬间由于系统底层驱动原因，仍可能导致 Arduino 复位
-    // 我们等 2 秒让 Arduino 完成 setup()
+    // 等 2 秒让 Arduino 完成 setup()
     console.log("等待 2 秒让下位机硬件及电平稳定...");
     await new Promise((resolve) => setTimeout(resolve, 2000));
 

@@ -1,7 +1,7 @@
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Models.ValueObjects;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
 
-namespace SmartEdgeHMI.Database.Entities;
+namespace SmartEdgeHMI.Data.Entities;
 
 public class SensorReadingRecord
 {

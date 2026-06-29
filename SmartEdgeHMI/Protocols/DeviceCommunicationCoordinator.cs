@@ -4,7 +4,9 @@ using Serilog;
 using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.Protocols.Services;
+using SmartEdgeHMI.Protocols.Parsers;
+using SmartEdgeHMI.Protocols.Parsers.Modbus;
+using SmartEdgeHMI.Protocols.Transports;
 
 namespace SmartEdgeHMI.Protocols;
 
@@ -54,28 +56,28 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator
             switch (protocol)
             {
                 case CommunicationProtocol.JSON:
-                    {
-                        var command = new CommandPayload(
-                            CommandId: Guid.NewGuid(),
-                            DeviceId: AppConstants.DefaultDeviceName,
-                            Action: DeviceAction.Configure,
-                            TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                            Parameters: value
-                        );
-                        await _transport.WriteStringAsync(portName, JsonSerializer.Serialize(command));
-                        Log.Information("[JSON] 下发阈值至 {Port}: {Value}°C", portName, value);
-                        break;
-                    }
+                {
+                    var command = new CommandPayload(
+                        CommandId: Guid.NewGuid(),
+                        DeviceId: AppConstants.DefaultDeviceName,
+                        Action: DeviceAction.Configure,
+                        TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                        Parameters: value
+                    );
+                    await _transport.WriteStringAsync(portName, JsonSerializer.Serialize(command));
+                    Log.Information("[JSON] 下发阈值至 {Port}: {Value}°C", portName, value);
+                    break;
+                }
                 case CommunicationProtocol.Modbus:
-                    {
-                        var modbus = (ModbusProtocolService)
-                            _serviceProvider.GetRequiredKeyedService<IProtocolParser>("Modbus");
-                        await modbus.WriteSingleRegisterAsync(portName,
-                            _protocolConfig.SlaveAddress, ModbusProtocolService.RegisterThreshold, (ushort)Math.Round(value * 10));
-                        Log.Information("[Modbus] 下发阈值至 {Port}: {Value}°C (地址 0x{Addr:X4} ← 写入值 {Raw})",
-                            portName, value, ModbusProtocolService.RegisterThreshold, (ushort)Math.Round(value * 10));
-                        break;
-                    }
+                {
+                    var modbus = (ModbusProtocolParser)
+                        _serviceProvider.GetRequiredKeyedService<IProtocolParser>("Modbus");
+                    await modbus.WriteSingleRegisterAsync(portName,
+                        _protocolConfig.SlaveAddress, ModbusProtocolParser.RegisterThreshold, (ushort)Math.Round(value * 10));
+                    Log.Information("[Modbus] 下发阈值至 {Port}: {Value}°C (地址 0x{Addr:X4} ← 写入值 {Raw})",
+                        portName, value, ModbusProtocolParser.RegisterThreshold, (ushort)Math.Round(value * 10));
+                    break;
+                }
             }
         }
     }
@@ -90,26 +92,26 @@ public class DeviceCommunicationCoordinator : IDeviceCommunicationCoordinator
         switch (protocol)
         {
             case CommunicationProtocol.JSON:
-                {
-                    var command = new CommandPayload(
-                        CommandId: Guid.NewGuid(),
-                        DeviceId: AppConstants.DefaultDeviceName,
-                        Action: DeviceAction.Reset,
-                        TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-                    );
-                    await _transport.WriteStringAsync(port, JsonSerializer.Serialize(command));
-                    Log.Information("[{Protocol}] 复位指令已发送至 {Port}", protocol, port);
-                    break;
-                }
+            {
+                var command = new CommandPayload(
+                    CommandId: Guid.NewGuid(),
+                    DeviceId: AppConstants.DefaultDeviceName,
+                    Action: DeviceAction.Reset,
+                    TimestampUnix: DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                );
+                await _transport.WriteStringAsync(port, JsonSerializer.Serialize(command));
+                Log.Information("[{Protocol}] 复位指令已发送至 {Port}", protocol, port);
+                break;
+            }
             case CommunicationProtocol.Modbus:
-                {
-                    var modbus = (ModbusProtocolService)
-                        _serviceProvider.GetRequiredKeyedService<IProtocolParser>("Modbus");
-                    await modbus.WriteSingleRegisterAsync(port,
-                        _protocolConfig.SlaveAddress, ModbusProtocolService.RegisterReset, 1);
-                    Log.Information("[Modbus] 复位指令已发送至 {Port}", port);
-                    break;
-                }
+            {
+                var modbus = (ModbusProtocolParser)
+                    _serviceProvider.GetRequiredKeyedService<IProtocolParser>("Modbus");
+                await modbus.WriteSingleRegisterAsync(port,
+                    _protocolConfig.SlaveAddress, ModbusProtocolParser.RegisterReset, 1);
+                Log.Information("[Modbus] 复位指令已发送至 {Port}", port);
+                break;
+            }
         }
     }
 }

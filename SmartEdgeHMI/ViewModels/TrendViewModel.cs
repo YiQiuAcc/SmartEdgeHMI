@@ -1,8 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
-using SmartEdgeHMI.Database.Entities;
-using SmartEdgeHMI.Database.Repositories;
+using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Data.Repositories;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -23,6 +23,7 @@ public partial class TrendViewModel(ITelemetryRepository telemetryRepo) : ViewMo
     public static int[] TargetPointOptions { get; } = [500, 1000, 2000, 5000];
 
     public event Action<IReadOnlyList<SensorReadingRecord>>? HistoryDataLoaded;
+
     public event Action? LiveModeRestored;
 
     [RelayCommand]

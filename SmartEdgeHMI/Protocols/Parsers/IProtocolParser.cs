@@ -1,6 +1,6 @@
 using SmartEdgeHMI.Models.Messages;
 
-namespace SmartEdgeHMI.Protocols.Services;
+namespace SmartEdgeHMI.Protocols.Parsers;
 
 public interface IProtocolParser : IDisposable
 {

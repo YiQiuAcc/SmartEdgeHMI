@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Models.ValueObjects;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
 
 namespace SmartEdgeHMI.Models.Dtos;
 

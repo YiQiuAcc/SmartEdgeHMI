@@ -113,8 +113,14 @@
                             Width="160"
                             Binding="{Binding Timestamp, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"
                             Header="Time" />
-                        <DataGridTextColumn Width="80" Binding="{Binding Level}" Header="Level" />
-                        <DataGridTextColumn Width="*" Binding="{Binding Message}" Header="Message" />
+                        <DataGridTextColumn
+                            Width="80"
+                            Binding="{Binding Level}"
+                            Header="Level" />
+                        <DataGridTextColumn
+                            Width="*"
+                            Binding="{Binding Message}"
+                            Header="Message" />
                     </DataGrid.Columns>
                 </DataGrid>
             </TabItem>

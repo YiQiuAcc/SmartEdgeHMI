@@ -3,11 +3,10 @@ using System.IO;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
-using Serilog;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Models.ValueObjects;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
 
-namespace SmartEdgeHMI.Database;
+namespace SmartEdgeHMI.Data;
 
 /// <summary>SQLite 连接工厂: 管理连接字符串、Dapper 类型处理器注册、Schema 初始化与迁移。</summary>
 public sealed class SqliteConnectionFactory
@@ -117,6 +116,7 @@ public sealed class SqliteConnectionFactory
     private sealed class DataQualityTypeHandler : SqlMapper.TypeHandler<DataQuality>
     {
         public override DataQuality Parse(object value) => (DataQuality)Convert.ToInt32(value);
+
         public override void SetValue(IDbDataParameter parameter, DataQuality value)
         {
             parameter.DbType = DbType.Int32;
@@ -127,6 +127,7 @@ public sealed class SqliteConnectionFactory
     private sealed class TemperatureTypeHandler : SqlMapper.TypeHandler<Temperature>
     {
         public override Temperature Parse(object value) => Temperature.FromCelsius(Convert.ToDouble(value));
+
         public override void SetValue(IDbDataParameter parameter, Temperature value)
         {
             parameter.DbType = DbType.Double;
@@ -137,6 +138,7 @@ public sealed class SqliteConnectionFactory
     private sealed class HumidityTypeHandler : SqlMapper.TypeHandler<Humidity>
     {
         public override Humidity Parse(object value) => Humidity.FromPercent(Convert.ToDouble(value));
+
         public override void SetValue(IDbDataParameter parameter, Humidity value)
         {
             parameter.DbType = DbType.Double;

@@ -4,7 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Serilog;
 using SmartEdgeHMI.Common;
 
-namespace SmartEdgeHMI.MachineState;
+namespace SmartEdgeHMI.Core.Services;
 
 /// <summary>应用设置服务: 从本地 JSON 文件加载/保存设置, 首次运行时回退到 appsettings.json 默认值</summary>
 public class SettingsService : ISettingsService

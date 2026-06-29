@@ -1,7 +1,7 @@
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Models.ValueObjects;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
 
-namespace SmartEdgeHMI.MachineState;
+namespace SmartEdgeHMI.Core.Domain.MachineState;
 
 public record DeviceStateSnapshot(
     string PortName,

@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Text;
 using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Models.Dtos;
-using SmartEdgeHMI.Protocols.Services;
+using SmartEdgeHMI.Protocols.Parsers.Json;
 
 namespace SmartEdgeHMI.Tests.Communication.Protocols;
 
@@ -12,7 +12,7 @@ namespace SmartEdgeHMI.Tests.Communication.Protocols;
 /// - 验证内容包括:有效 JSON 解析、无效 JSON 处理、CRLF 处理 </para> </summary>
 public class JsonProtocolServiceTests
 {
-    private static readonly MethodInfo _processLineMethod = typeof(JsonProtocolService)
+    private static readonly MethodInfo _processLineMethod = typeof(JsonProtocolParser)
         .GetMethod("ProcessLine", BindingFlags.NonPublic | BindingFlags.Static)!;
 
     /// <summary>验证完整有效 JSON 可以正确反序列化为 TelemetryPayload</summary>

@@ -1,28 +1,22 @@
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Serilog;
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Data.Filters;
 using SmartEdgeHMI.Models.Dtos;
 
-namespace SmartEdgeHMI.Database.Repositories;
+namespace SmartEdgeHMI.Data.Repositories;
 
 /// <summary>报警记录持久化仓储: 查询、写入、状态更新、上下文关联遥测分析。</summary>
-public sealed class SqliteAlarmRepository : IAlarmRepository
+public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConfiguration config) : IAlarmRepository
 {
-    private readonly SqliteConnectionFactory _factory;
-    private readonly int _queryLimit;
-
-    public SqliteAlarmRepository(SqliteConnectionFactory factory, IConfiguration config)
-    {
-        _factory = factory;
-        _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
-    }
+    private readonly int _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
 
     public async Task<List<AlarmRecord>> GetAlarmHistoryAsync(AlarmHistoryFilter? filter = null)
     {
         try
         {
-            await using var connection = await _factory.CreateConnectionAsync();
+            await using var connection = await factory.CreateConnectionAsync();
 
             var result = (await connection.QueryAsync<AlarmRecord>(
                 "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC")).AsList();
@@ -49,7 +43,7 @@ public sealed class SqliteAlarmRepository : IAlarmRepository
     {
         try
         {
-            await using var connection = await _factory.CreateConnectionAsync();
+            await using var connection = await factory.CreateConnectionAsync();
 
             return await connection.ExecuteScalarAsync<long>("""
                 INSERT INTO AlarmHistory (DeviceId, Timestamp, AlarmCode, TriggerValue, QualityCode, State)
@@ -68,7 +62,7 @@ public sealed class SqliteAlarmRepository : IAlarmRepository
     {
         try
         {
-            await using var connection = await _factory.CreateConnectionAsync();
+            await using var connection = await factory.CreateConnectionAsync();
             await using var transaction = await connection.BeginTransactionAsync();
 
             await connection.ExecuteAsync("""
@@ -92,7 +86,7 @@ public sealed class SqliteAlarmRepository : IAlarmRepository
 
         try
         {
-            await using var connection = await _factory.CreateConnectionAsync();
+            await using var connection = await factory.CreateConnectionAsync();
 
             var alarms = (await connection.QueryAsync<AlarmRecord>(
                 "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC")).AsList();

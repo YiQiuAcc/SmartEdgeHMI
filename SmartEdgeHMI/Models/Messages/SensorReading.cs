@@ -1,5 +1,5 @@
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Models.ValueObjects;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
 
 namespace SmartEdgeHMI.Models.Messages;
 

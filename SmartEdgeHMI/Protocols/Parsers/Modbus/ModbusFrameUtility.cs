@@ -1,9 +1,8 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Protocols.Services.Utils;
 
-namespace SmartEdgeHMI.Protocols.Services;
+namespace SmartEdgeHMI.Protocols.Parsers.Modbus;
 
 /// <summary>Modbus 帧构建与校验的纯静态工具方法</summary>
 public static class ModbusFrameUtility

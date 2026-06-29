@@ -2,10 +2,10 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.Models.ValueObjects;
 
-namespace SmartEdgeHMI.MachineState;
+namespace SmartEdgeHMI.Core.Domain.MachineState;
 
 /// <summary>设备运行时状态容器: 聚合最新遥测值、连接状态和活跃报警, 向 UI 层提供数据绑定源</summary>
 public class DeviceStateContainer : IDeviceStateContainer

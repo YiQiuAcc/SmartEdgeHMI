@@ -1,11 +1,10 @@
 using System.Threading.Channels;
 using Dapper;
-using Microsoft.Data.Sqlite;
 using Serilog;
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Data.Entities;
 using SmartEdgeHMI.Utils.Math;
 
-namespace SmartEdgeHMI.Database.Repositories;
+namespace SmartEdgeHMI.Data.Repositories;
 
 /// <summary>遥测持久化仓储: 双缓冲 Channel 模型, 采集线程仅入队, 后台消费者按批次/时间合并刷盘。</summary>
 public sealed class SqliteTelemetryRepository : ITelemetryRepository, IAsyncDisposable
@@ -102,7 +101,10 @@ public sealed class SqliteTelemetryRepository : ITelemetryRepository, IAsyncDisp
                     batch.Add(item);
             }
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            // 正常超时, 触发 Flush
+        }
     }
 
     private async Task<DateTime> FlushIfNeededAsync(List<SensorReadingRecord> batch, DateTime lastFlush)
@@ -157,8 +159,14 @@ public sealed class SqliteTelemetryRepository : ITelemetryRepository, IAsyncDisp
         _channel.Writer.Complete();
         await _cts.CancelAsync();
         try { await _consumerTask.WaitAsync(TimeSpan.FromSeconds(5)); }
-        catch (OperationCanceledException) { }
-        catch (TimeoutException) { }
+        catch (OperationCanceledException)
+        {
+            // 正常取消, 任务已结束
+        }
+        catch (TimeoutException)
+        {
+            // 任务未能在指定时间内结束, 可能仍在处理剩余数据
+        }
         catch (Exception ex) { Log.Warning(ex, "[TelemetryRepo] 消费任务停止时抛出异常"); }
         _cts.Dispose();
     }

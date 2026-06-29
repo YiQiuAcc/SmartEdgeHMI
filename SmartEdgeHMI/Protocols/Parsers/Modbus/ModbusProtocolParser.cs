@@ -3,22 +3,21 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO.Pipelines;
-using System.Net;
 using Serilog;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.MachineState;
-using SmartEdgeHMI.Models.Dtos;
+using SmartEdgeHMI.Core.Domain.MachineState;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
+using SmartEdgeHMI.Core.Services;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.Models.ValueObjects;
-using SmartEdgeHMI.Protocols.Services.Utils;
+using SmartEdgeHMI.Protocols.Transports;
 
-namespace SmartEdgeHMI.Protocols.Services;
+namespace SmartEdgeHMI.Protocols.Parsers.Modbus;
 
 /// <summary>
-/// Modbus RTU 协议服务: 轮询(FC03) + 单寄存器写入(FC06)。
-/// 命令通过 ITransportService.WriteBytesAsync 发送, 响应由传输层后台读循环异步送达 OnDataReceivedAsync → Pipe → ProcessPipeLoop。
+/// Modbus RTU 协议服务: 轮询(FC03) + 单寄存器写入(FC06)。 命令通过 ITransportService.WriteBytesAsync 发送,
+/// 响应由传输层后台读循环异步送达 OnDataReceivedAsync → Pipe → ProcessPipeLoop。
 /// </summary>
-public class ModbusProtocolService : IProtocolParser
+public class ModbusProtocolParser : IProtocolParser
 {
     private readonly ITransportService _transport;
     private readonly IProtocolConfig _protocolConfig;
@@ -33,7 +32,7 @@ public class ModbusProtocolService : IProtocolParser
     public const ushort RegisterThreshold = 0x0002;
     public string Key => "Modbus";
 
-    public ModbusProtocolService(ITransportService transport,
+    public ModbusProtocolParser(ITransportService transport,
         IProtocolConfig protocolConfig, IDeviceStateContainer deviceState,
         IAlarmStateMachine alarmStateMachine, ISettingsService settingsService)
     {
@@ -87,10 +86,10 @@ public class ModbusProtocolService : IProtocolParser
     {
         if (data.Length == 0) return;
 
-        var state = _pipes.GetOrAdd(portName, _ =>
+        var state = _pipes.GetOrAdd(portName, key =>
         {
             var s = new PortPipeState();
-            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(portName, s));
+            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(key, s));
             return s;
         });
         await state.Pipe.Writer.WriteAsync(data);
@@ -148,7 +147,7 @@ public class ModbusProtocolService : IProtocolParser
     private async Task PollLoopAsync(string portName, CancellationToken ct)
     {
         var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_settingsService.Current.Modbus.PollingIntervalMs));
-        var data = new byte[4];
+        byte[] data = new byte[4];
         try
         {
             while (await timer.WaitForNextTickAsync(ct))
@@ -164,7 +163,10 @@ public class ModbusProtocolService : IProtocolParser
                 catch (Exception ex) { Log.Error(ex, "[Modbus] {Port} 轮询异常", portName); }
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // 轮询任务被取消, 正常退出
+        }
         finally { timer.Dispose(); }
     }
 
@@ -183,7 +185,10 @@ public class ModbusProtocolService : IProtocolParser
                 if (result.IsCompleted) break;
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // 管道处理任务被取消, 正常退出
+        }
         catch (Exception ex) { Log.Error(ex, "[Modbus] {Port} 管道处理循环异常退出", portName); }
         finally
         {
@@ -322,13 +327,41 @@ public class ModbusProtocolService : IProtocolParser
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _protocolConfig.PropertyChanged -= OnProtocolConfigChanged;
-        foreach (var cts in _pollingTokens.Values) { try { cts.Cancel(); cts.Dispose(); } catch { } }
-        _pollingTokens.Clear();
-        foreach (string portName in _pipes.Keys.ToList()) CleanupPipe(portName);
+        Dispose(true);
+        // 通知垃圾回收器（GC）该对象已被手动清理, 无需再调用终结器（析构函数）
         GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+
+        if (disposing)
+        {
+            // 清理托管资源
+            _protocolConfig.PropertyChanged -= OnProtocolConfigChanged;
+            // 安全停止并销毁所有的定时轮询任务
+            foreach (var cts in _pollingTokens.Values)
+            {
+                try
+                {
+                    cts.Cancel();
+                    cts.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "[Modbus Parser] 释放轮询 Token 时发生异常");
+                }
+            }
+            _pollingTokens.Clear();
+            // 关闭并安全销毁所有的 Pipelines 高性能原始数据流管道
+            foreach (string portName in _pipes.Keys.ToList())
+            {
+                CleanupPipe(portName);
+            }
+            _pipes.Clear();
+        }
+        _disposed = true;
     }
 
     private sealed class PortPipeState : IDisposable
@@ -337,6 +370,8 @@ public class ModbusProtocolService : IProtocolParser
             resumeWriterThreshold: 0, minimumSegmentSize: AppConstants.PipeMinimumSegmentSize, useSynchronizationContext: false));
         public CancellationTokenSource Cts { get; } = new();
         public Task ProcessingTask { get; set; } = Task.CompletedTask;
-        public void Dispose() { Cts.Cancel(); Cts.Dispose(); }
+
+        public void Dispose()
+        { Cts.Cancel(); Cts.Dispose(); }
     }
 }

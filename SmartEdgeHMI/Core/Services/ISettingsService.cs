@@ -1,6 +1,6 @@
 using SmartEdgeHMI.Common;
 
-namespace SmartEdgeHMI.MachineState;
+namespace SmartEdgeHMI.Core.Services;
 
 /// <summary>应用设置服务: 管理配置的加载、运行时访问和持久化</summary>
 public interface ISettingsService

@@ -1,11 +1,14 @@
 using Microsoft.Extensions.DependencyInjection;
-using SmartEdgeHMI.Database;
-using SmartEdgeHMI.Database.Repositories;
-using SmartEdgeHMI.Protocols.Ports;
-using SmartEdgeHMI.Utils;
+using SmartEdgeHMI.Core.Domain.MachineState;
+using SmartEdgeHMI.Core.Services;
+using SmartEdgeHMI.Data;
+using SmartEdgeHMI.Data.Repositories;
 using SmartEdgeHMI.Protocols;
-using SmartEdgeHMI.Protocols.Services;
-using SmartEdgeHMI.MachineState;
+using SmartEdgeHMI.Protocols.Parsers;
+using SmartEdgeHMI.Protocols.Parsers.Json;
+using SmartEdgeHMI.Protocols.Parsers.Modbus;
+using SmartEdgeHMI.Protocols.Transports;
+using SmartEdgeHMI.Protocols.Transports.Serial;
 using SmartEdgeHMI.ViewModels;
 using SmartEdgeHMI.Views;
 
@@ -22,8 +25,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAlarmRepository, SqliteAlarmRepository>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IDeviceStateContainer, DeviceStateContainer>();
-        services.AddKeyedSingleton<IProtocolParser, JsonProtocolService>("JSON");
-        services.AddKeyedSingleton<IProtocolParser, ModbusProtocolService>("Modbus");
+        services.AddKeyedSingleton<IProtocolParser, JsonProtocolParser>("JSON");
+        services.AddKeyedSingleton<IProtocolParser, ModbusProtocolParser>("Modbus");
         services.AddSingleton<IDeviceCommunicationCoordinator, DeviceCommunicationCoordinator>();
         services.AddSingleton<IAlarmStateMachine, AlarmStateMachine>();
         services.AddSingleton<ConnectionViewModel>();

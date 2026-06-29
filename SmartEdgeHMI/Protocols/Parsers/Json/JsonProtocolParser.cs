@@ -5,13 +5,13 @@ using System.Text;
 using System.Text.Json;
 using Serilog;
 using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Core.Domain.MachineState;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.MachineState;
 
-namespace SmartEdgeHMI.Protocols.Services;
+namespace SmartEdgeHMI.Protocols.Parsers.Json;
 
-public class JsonProtocolService(IDeviceStateContainer deviceState) : IProtocolParser
+public class JsonProtocolParser(IDeviceStateContainer deviceState) : IProtocolParser
 {
     private readonly ConcurrentDictionary<string, PortPipeState> _pipes = new();
     private bool _disposed;
@@ -61,7 +61,10 @@ public class JsonProtocolService(IDeviceStateContainer deviceState) : IProtocolP
                 if (result.IsCompleted) break;
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // 取消操作时正常退出循环
+        }
         catch (Exception ex)
         {
             Log.Error(ex, "[JSON] {Port} 管道处理循环异常退出", portName);

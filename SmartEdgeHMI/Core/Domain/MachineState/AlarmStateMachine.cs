@@ -1,12 +1,13 @@
 using Serilog;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Core.Services;
+using SmartEdgeHMI.Data.Entities;
 using SmartEdgeHMI.Models.Dtos;
 
-namespace SmartEdgeHMI.MachineState;
+namespace SmartEdgeHMI.Core.Domain.MachineState;
 
 /// <summary>ISA-18.2 报警状态机: 管理报警的 UNACK/ACK/RTN_UNACK/NORMAL 四种状态转换</summary>
-public class AlarmStateMachine : IAlarmStateMachine
+public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMachine
 {
     private sealed class AlarmContext
     {
@@ -16,7 +17,6 @@ public class AlarmStateMachine : IAlarmStateMachine
 
     private readonly Dictionary<string, AlarmContext> _activeAlarms = [];
     private readonly object _syncRoot = new();
-    private readonly ISettingsService _settingsService;
 
     public event Action? AlarmStatesChanged;
 
@@ -44,11 +44,6 @@ public class AlarmStateMachine : IAlarmStateMachine
                     .Select(c => c.Record)];
             }
         }
-    }
-
-    public AlarmStateMachine(ISettingsService settingsService)
-    {
-        _settingsService = settingsService;
     }
 
     public AlarmRecord? Evaluate(TelemetryPayload payload)
@@ -89,7 +84,7 @@ public class AlarmStateMachine : IAlarmStateMachine
             {
                 ctx.RecoveryCount++;
 
-                if (ctx.RecoveryCount >= _settingsService.Current.Alarm.RecoveryDebounceCount)
+                if (ctx.RecoveryCount >= settingsService.Current.Alarm.RecoveryDebounceCount)
                 {
                     TransitionToRecovered(payload.DeviceId, ctx);
                 }

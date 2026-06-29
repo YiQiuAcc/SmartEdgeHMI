@@ -1,4 +1,4 @@
-namespace SmartEdgeHMI.Protocols.Services.Utils;
+namespace SmartEdgeHMI.Protocols.Parsers.Modbus;
 
 public static class Crc16Table
 {

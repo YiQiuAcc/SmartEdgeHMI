@@ -4,10 +4,10 @@ using System.Windows.Threading;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
-using SmartEdgeHMI.Database;
-using SmartEdgeHMI.Database.Repositories;
+using SmartEdgeHMI.Core.Services;
+using SmartEdgeHMI.Data;
+using SmartEdgeHMI.Data.Repositories;
 using SmartEdgeHMI.Extensions;
-using SmartEdgeHMI.Utils;
 using SmartEdgeHMI.Utils.Logging;
 using SmartEdgeHMI.Views;
 
@@ -34,6 +34,7 @@ public partial class App : Application
     private sealed class RelayCommand(Action execute) : ICommand
     {
 #pragma warning disable CS0067
+
         public event EventHandler? CanExecuteChanged;
 #pragma warning restore CS0067
 

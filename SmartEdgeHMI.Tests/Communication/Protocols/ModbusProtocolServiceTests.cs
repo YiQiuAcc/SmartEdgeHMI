@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Protocols.Services;
+using SmartEdgeHMI.Protocols.Parsers.Modbus;
 
 namespace SmartEdgeHMI.Tests.Communication.Protocols;
 

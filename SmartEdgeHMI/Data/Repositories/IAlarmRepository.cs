@@ -1,6 +1,7 @@
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Data.Filters;
 
-namespace SmartEdgeHMI.Database.Repositories;
+namespace SmartEdgeHMI.Data.Repositories;
 
 /// <summary>报警记录持久化仓储</summary>
 public interface IAlarmRepository
