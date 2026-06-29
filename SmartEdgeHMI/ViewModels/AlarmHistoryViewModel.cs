@@ -3,12 +3,12 @@ using System.Windows.Data;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
-using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Database.Entities;
-using SmartEdgeHMI.Database.Repositories;
-using SmartEdgeHMI.Utils.UI;
+using SmartEdgeHMI.Core.Domain.MachineState;
+using SmartEdgeHMI.Core.Services;
+using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Data.Repositories;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.MachineState;
+using SmartEdgeHMI.Utils.UI;
 
 namespace SmartEdgeHMI.ViewModels;
 

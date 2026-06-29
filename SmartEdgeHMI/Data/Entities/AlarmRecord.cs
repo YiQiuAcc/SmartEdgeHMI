@@ -1,6 +1,6 @@
 using SmartEdgeHMI.Common;
 
-namespace SmartEdgeHMI.Database.Entities;
+namespace SmartEdgeHMI.Data.Entities;
 
 public class AlarmRecord
 {

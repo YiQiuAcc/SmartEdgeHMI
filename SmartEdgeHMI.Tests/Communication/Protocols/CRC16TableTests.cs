@@ -1,4 +1,4 @@
-using SmartEdgeHMI.Protocols.Services.Utils;
+using SmartEdgeHMI.Protocols.Parsers.Modbus;
 
 namespace SmartEdgeHMI.Tests.Communication.Protocols;
 

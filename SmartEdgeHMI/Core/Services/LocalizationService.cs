@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Windows;
 using Serilog;
 
-namespace SmartEdgeHMI.Utils;
+namespace SmartEdgeHMI.Core.Services;
 
 /// <summary>多语言国际化服务: 运行时切换资源字典, 无需重启应用</summary>
 public class LocalizationService

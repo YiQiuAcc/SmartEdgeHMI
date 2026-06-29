@@ -1,8 +1,8 @@
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Data.Entities;
 using SmartEdgeHMI.Models.Dtos;
 
-namespace SmartEdgeHMI.MachineState;
+namespace SmartEdgeHMI.Core.Domain.MachineState;
 
 /// <summary>ISA-18.2 报警状态机: 管理报警的未确认/已确认/恢复未确认/正常四种状态转换</summary>
 public interface IAlarmStateMachine

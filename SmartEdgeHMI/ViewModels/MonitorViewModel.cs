@@ -4,12 +4,14 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Database.Entities;
-using SmartEdgeHMI.Database.Repositories;
+using SmartEdgeHMI.Core.Domain.MachineState;
+using SmartEdgeHMI.Core.Services;
+using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Data.Repositories;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.Protocols;
-using SmartEdgeHMI.MachineState;
+using SmartEdgeHMI.Protocols.Transports;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -193,7 +195,10 @@ public partial class MonitorViewModel : ViewModelBase,
             await Task.Delay(AppConstants.SettingsSaveDebounceMs, token);
             await SaveThresholdAsync(value, CancellationToken.None);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // 正常取消
+        }
         catch (Exception ex)
         {
             Log.Error(ex, "阈值防抖保存失败");

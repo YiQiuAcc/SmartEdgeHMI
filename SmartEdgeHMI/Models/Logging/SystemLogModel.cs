@@ -1,4 +1,4 @@
-namespace SmartEdgeHMI.Utils.Logging;
+namespace SmartEdgeHMI.Models.Logging;
 
 public class SystemLogModel
 {

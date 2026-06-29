@@ -1,11 +1,10 @@
 using System.ComponentModel;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.Messaging;
-using SmartEdgeHMI.Common;
-using SmartEdgeHMI.MachineState;
-using SmartEdgeHMI.Utils.Logging;
-using SmartEdgeHMI.Utils.UI;
+using SmartEdgeHMI.Core.Services;
+using SmartEdgeHMI.Models.Logging;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.Utils.UI;
 
 namespace SmartEdgeHMI.ViewModels;
 

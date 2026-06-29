@@ -3,7 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using ScottPlot;
 using ScottPlot.TickGenerators;
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Data.Entities;
 using SmartEdgeHMI.ViewModels;
 
 namespace SmartEdgeHMI.Views.Controls;
@@ -108,8 +108,8 @@ public partial class ChartView : UserControl
             DataPlot.Plot.Clear();
             _loggers.Clear();
 
-            double[] xs = data.Select(d => d.Timestamp.ToOADate()).ToArray();
-            double[] ys = data.Select(d => d.Temperature.Celsius).ToArray();
+            double[] xs = [.. data.Select(d => d.Timestamp.ToOADate())];
+            double[] ys = [.. data.Select(d => d.Temperature.Celsius)];
             var scatter = DataPlot.Plot.Add.Scatter(xs, ys);
             scatter.LineWidth = 2;
             scatter.Color = Colors.Cyan;

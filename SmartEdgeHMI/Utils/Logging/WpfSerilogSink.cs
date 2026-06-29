@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog.Core;
 using Serilog.Events;
+using SmartEdgeHMI.Models.Logging;
 using SmartEdgeHMI.Models.Messages;
 
 namespace SmartEdgeHMI.Utils.Logging;

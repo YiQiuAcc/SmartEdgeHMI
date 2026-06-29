@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace SmartEdgeHMI.Models.ValueObjects;
+namespace SmartEdgeHMI.Core.Domain.ValueObjects;
 
 [JsonConverter(typeof(TemperatureJsonConverter))]
 public readonly record struct Temperature

@@ -1,4 +1,4 @@
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Data.Entities;
 
 namespace SmartEdgeHMI.Models.Messages;
 

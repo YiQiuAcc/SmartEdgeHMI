@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Data;
 using SmartEdgeHMI.Common;
 
-namespace SmartEdgeHMI.Views;
+namespace SmartEdgeHMI.Views.Converters;
 
 public class AlarmAckVisibilityConverter : IValueConverter
 {

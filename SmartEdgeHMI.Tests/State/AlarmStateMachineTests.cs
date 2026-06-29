@@ -1,9 +1,10 @@
 using Microsoft.Extensions.Configuration;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Core.Domain.MachineState;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
+using SmartEdgeHMI.Core.Services;
+using SmartEdgeHMI.Data.Entities;
 using SmartEdgeHMI.Models.Dtos;
-using SmartEdgeHMI.Models.ValueObjects;
-using SmartEdgeHMI.MachineState;
 
 namespace SmartEdgeHMI.Tests.State;
 

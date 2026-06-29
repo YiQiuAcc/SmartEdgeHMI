@@ -1,6 +1,6 @@
-using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Data.Entities;
 
-namespace SmartEdgeHMI.Database.Repositories;
+namespace SmartEdgeHMI.Data.Repositories;
 
 /// <summary>遥测数据持久化仓储</summary>
 public interface ITelemetryRepository

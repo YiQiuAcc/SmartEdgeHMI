@@ -1,4 +1,4 @@
-namespace SmartEdgeHMI.Database;
+namespace SmartEdgeHMI.Data.Filters;
 
 public class AlarmHistoryFilter
 {
