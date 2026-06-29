@@ -4,11 +4,11 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Data.Entities;
-using SmartEdgeHMI.Data.Repositories;
-using SmartEdgeHMI.Infrastructure.UI;
+using SmartEdgeHMI.Database.Entities;
+using SmartEdgeHMI.Database.Repositories;
+using SmartEdgeHMI.Utils.UI;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.State;
+using SmartEdgeHMI.MachineState;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -17,13 +17,16 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
 {
     private readonly IAlarmRepository _alarmRepo;
     private readonly IAlarmStateMachine _alarmStateMachine;
+    private readonly ISettingsService _settingsService;
 
     public BulkObservableCollection<AlarmRecord> AlarmRecords { get; } = [];
 
-    public AlarmHistoryViewModel(IAlarmRepository alarmRepo, IAlarmStateMachine alarmStateMachine)
+    public AlarmHistoryViewModel(IAlarmRepository alarmRepo, IAlarmStateMachine alarmStateMachine,
+        ISettingsService settingsService)
     {
         _alarmRepo = alarmRepo;
         _alarmStateMachine = alarmStateMachine;
+        _settingsService = settingsService;
 
         EnableCollectionSynchronization(AlarmRecords);
 
@@ -46,7 +49,7 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
         DispatchToUI(() =>
         {
             AlarmRecords.Add(message.Record);
-            if (AlarmRecords.Count > AppConstants.MaxLogEntries)
+            if (AlarmRecords.Count > _settingsService.Current.Logging.MaxLogEntries)
                 AlarmRecords.RemoveAt(0);
         });
     }

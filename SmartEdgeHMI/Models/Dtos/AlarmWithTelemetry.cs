@@ -1,4 +1,4 @@
-using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Database.Entities;
 
 namespace SmartEdgeHMI.Models.Dtos;
 

@@ -2,8 +2,8 @@ using System.Buffers;
 using System.Reflection;
 using System.Text;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Communication.Protocols;
 using SmartEdgeHMI.Models.Dtos;
+using SmartEdgeHMI.Protocols.Services;
 
 namespace SmartEdgeHMI.Tests.Communication.Protocols;
 

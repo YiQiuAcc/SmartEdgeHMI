@@ -1,4 +1,4 @@
-using SmartEdgeHMI.Infrastructure.Logging;
+using SmartEdgeHMI.Utils.Logging;
 
 namespace SmartEdgeHMI.Models.Messages;
 

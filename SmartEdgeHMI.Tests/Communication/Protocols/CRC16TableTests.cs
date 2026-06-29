@@ -1,4 +1,4 @@
-using SmartEdgeHMI.Communication.Protocols.Utils;
+using SmartEdgeHMI.Protocols.Services.Utils;
 
 namespace SmartEdgeHMI.Tests.Communication.Protocols;
 

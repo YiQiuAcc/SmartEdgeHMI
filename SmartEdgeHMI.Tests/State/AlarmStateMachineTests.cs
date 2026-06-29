@@ -1,20 +1,28 @@
+using Microsoft.Extensions.Configuration;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Data.Entities;
+using SmartEdgeHMI.Database.Entities;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.ValueObjects;
-using SmartEdgeHMI.State;
+using SmartEdgeHMI.MachineState;
 
 namespace SmartEdgeHMI.Tests.State;
 
 public class AlarmStateMachineTests
 {
+    private static AlarmStateMachine CreateMachine()
+    {
+        var config = new ConfigurationBuilder().Build();
+        var settingsService = new SettingsService(config);
+        return new AlarmStateMachine(settingsService);
+    }
+
     #region 基础功能测试
 
     /// <summary>正常遥测数据不应触发报警</summary>
     [Fact]
     public void Evaluate_NormalPayload_ShouldReturnNull()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var payload = CreateNormalPayload("Sensor_01");
 
         var result = machine.Evaluate(payload);
@@ -26,7 +34,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void Evaluate_BadQuality_ShouldReturnNull()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var payload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.NoError, DataQuality.Bad);
 
         var result = machine.Evaluate(payload);
@@ -38,7 +46,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void Evaluate_FirstError_ShouldTriggerAlarm_UNACK()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var payload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
 
         var result = machine.Evaluate(payload);
@@ -55,7 +63,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void Evaluate_SameErrorRepeated_ShouldNotCreateNewAlarm()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var payload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
 
         var firstResult = machine.Evaluate(payload);
@@ -69,11 +77,11 @@ public class AlarmStateMachineTests
     [Fact]
     public void Evaluate_ErrorCleared_UnackAlarm_ShouldTransitionToRTN_UNACK()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload); // 触发报警
 
-        // 发送多次正常数据, 达到防抖阈值 (AppConstants.AlarmRecoveryDebounceCount = 3)
+        // 发送多次正常数据, 达到防抖阈值 (AlarmRecoveryDebounceCount = 3)
         var normalPayload = CreateNormalPayload("Sensor_01");
         AlarmRecord? result = null;
         for (int i = 0; i < 3; i++)
@@ -99,7 +107,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void Acknowledge_UnacknowledgedAlarm_ShouldTransitionToAck()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var payload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         var alarm = machine.Evaluate(payload);
         Assert.NotNull(alarm);
@@ -116,7 +124,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void Acknowledge_RTN_UNACK_ShouldTransitionToNormal()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
@@ -143,7 +151,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void Acknowledge_ThenRecover_ShouldTransitionToNormal()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         var alarm = machine.Evaluate(errorPayload);
         Assert.NotNull(alarm);
@@ -166,7 +174,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void Reactivate_RTN_UNACK_ShouldTransitionBackToUNACK()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
@@ -199,7 +207,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void AcknowledgeAll_MultipleAlarms_ShouldAcknowledgeAll()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
 
         // 创建多个设备的报警
         var alarm1 = machine.Evaluate(CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded));
@@ -235,7 +243,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void AcknowledgeAll_NoAlarms_ShouldNotThrow()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
 
         var ex = Record.Exception(() => machine.AcknowledgeAll());
         Assert.Null(ex);
@@ -249,7 +257,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void RecoveryDebounce_ShouldRequireMultipleNormalReadings()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
@@ -274,7 +282,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void FullCycle_AlarmRecovered_ThenNewAlarm_ShouldCreateNewRecord()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         var alarm1 = machine.Evaluate(errorPayload);
         Assert.NotNull(alarm1);
@@ -300,7 +308,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void ActiveAlarms_ShouldNotIncludeNormalState()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
@@ -324,7 +332,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void MultipleDevices_AlarmsShouldBeIndependent()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
 
         machine.Evaluate(CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded));
         machine.Evaluate(CreatePayload("Sensor_02", DeviceStatus.Online, ErrorCode.SensorDisconnected));
@@ -343,7 +351,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void Acknowledge_NonExistentAlarmId_ShouldNotChangeState()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
@@ -359,7 +367,7 @@ public class AlarmStateMachineTests
     [Fact]
     public void AlarmStatesChanged_ShouldFireOnStateTransition()
     {
-        var machine = new AlarmStateMachine();
+        var machine = CreateMachine();
         int eventCount = 0;
         machine.AlarmStatesChanged += () => eventCount++;
 

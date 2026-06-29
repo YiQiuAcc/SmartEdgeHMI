@@ -1,10 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
-using SmartEdgeHMI.Communication;
-using SmartEdgeHMI.Communication.Ports;
-using SmartEdgeHMI.Communication.Protocols;
-using SmartEdgeHMI.Data.Repositories;
-using SmartEdgeHMI.Infrastructure;
-using SmartEdgeHMI.State;
+using SmartEdgeHMI.Database;
+using SmartEdgeHMI.Database.Repositories;
+using SmartEdgeHMI.Protocols.Ports;
+using SmartEdgeHMI.Utils;
+using SmartEdgeHMI.Protocols;
+using SmartEdgeHMI.Protocols.Services;
+using SmartEdgeHMI.MachineState;
 using SmartEdgeHMI.ViewModels;
 using SmartEdgeHMI.Views;
 
@@ -15,9 +16,10 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAppServices(this IServiceCollection services)
     {
         services.AddSingleton<ISerialPortService, SerialPortService>();
-        services.AddSingleton<SqliteRepository>();
-        services.AddSingleton<ITelemetryRepository>(sp => sp.GetRequiredService<SqliteRepository>());
-        services.AddSingleton<IAlarmRepository>(sp => sp.GetRequiredService<SqliteRepository>());
+        services.AddSingleton<ITransportService>(sp => sp.GetRequiredService<ISerialPortService>());
+        services.AddSingleton<SqliteConnectionFactory>();
+        services.AddSingleton<ITelemetryRepository, SqliteTelemetryRepository>();
+        services.AddSingleton<IAlarmRepository, SqliteAlarmRepository>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IDeviceStateContainer, DeviceStateContainer>();
         services.AddKeyedSingleton<IProtocolParser, JsonProtocolService>("JSON");
@@ -30,6 +32,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<AlarmHistoryViewModel>();
         services.AddSingleton<LogConsoleViewModel>();
         services.AddSingleton<TrendViewModel>();
+        services.AddSingleton<ChartViewModel>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<WatchdogHeartbeatClient>();
         services.AddSingleton<MainWindow>();

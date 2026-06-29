@@ -2,20 +2,17 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Communication;
-using SmartEdgeHMI.Communication.Ports;
-using SmartEdgeHMI.Infrastructure;
+using SmartEdgeHMI.Utils;
 using SmartEdgeHMI.Models.Messages;
-using SmartEdgeHMI.State;
+using SmartEdgeHMI.Protocols;
+using SmartEdgeHMI.Protocols.Ports;
+using SmartEdgeHMI.MachineState;
 
 namespace SmartEdgeHMI.ViewModels;
 
-public partial class ConnectionViewModel : ViewModelBase,
-    IRecipient<DeviceStateChanged>,
-    IProtocolConfig
+public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
 {
     private readonly ISerialPortService _serialPortService;
     private readonly ISettingsService _settingsService;
@@ -63,11 +60,59 @@ public partial class ConnectionViewModel : ViewModelBase,
         string[] ports = _serialPortService.GetAvailablePortNames() ?? [];
         AvailablePorts = new ObservableCollection<string>(ports);
 
+        _serialPortService.StateChanged += OnStateChanged;
         LocalizationService.Instance.LanguageChanged += RefreshStatusText;
-        WeakReferenceMessenger.Default.RegisterAll(this);
 
         LoadSavedSettings();
     }
+
+    private void OnStateChanged(string portName, ConnectionState state)
+    {
+        DispatchToUI(() =>
+        {
+            switch (state)
+            {
+                case ConnectionState.Connected:
+                    SetPortState(portName, connected: true);
+                    break;
+                case ConnectionState.Disconnected:
+                    SetPortState(portName, connected: false);
+                    break;
+                case ConnectionState.Error:
+                    SetPortState(portName, connected: false);
+                    StatusText = $"链路故障 [{portName}]";
+                    Log.Error("串口 {Port} 链路故障", portName);
+                    break;
+            }
+        });
+    }
+
+    private void SetPortState(string portName, bool connected)
+    {
+        if (connected)
+            _connectedPorts.Add(portName);
+        else
+            _connectedPorts.Remove(portName);
+
+        OnPropertyChanged(nameof(IsConnected));
+        OnPropertyChanged(nameof(StatusColor));
+        OnPropertyChanged(nameof(IsSelectedPortConnected));
+        OnPropertyChanged(nameof(ToggleButtonText));
+
+        string notConnected = FindStringResource("Str_NotConnected", "未连接");
+        string connectedTo = FindStringResource("Str_ConnectedTo", "已连接");
+        string connectedMulti = FindStringResource("Str_ConnectedMulti", "已连接 {0} 个端口");
+
+        StatusText = _connectedPorts.Count switch
+        {
+            0 => notConnected,
+            1 => $"{connectedTo} {_connectedPorts.First()}",
+            _ => connectedMulti.Replace("{0}", _connectedPorts.Count.ToString())
+        };
+    }
+
+    private static string FindStringResource(string key, string fallback)
+        => Application.Current.TryFindResource(key) as string ?? fallback;
 
     private void LoadSavedSettings()
     {
@@ -135,54 +180,6 @@ public partial class ConnectionViewModel : ViewModelBase,
             _ => connectedMulti.Replace("{0}", _connectedPorts.Count.ToString())
         };
     }
-
-    public void Receive(DeviceStateChanged message)
-    {
-        DispatchToUI(() =>
-        {
-            switch (message.State)
-            {
-                case ConnectionState.Connected:
-                    SetPortState(message.PortName, connected: true);
-                    break;
-                case ConnectionState.Disconnected:
-                    SetPortState(message.PortName, connected: false);
-                    break;
-                case ConnectionState.Error:
-                    SetPortState(message.PortName, connected: false);
-                    StatusText = $"链路故障 [{message.PortName}]: {message.ErrorDetails}";
-                    Log.Error("串口 {Port} 链路故障: {Error}", message.PortName, message.ErrorDetails);
-                    break;
-            }
-        });
-    }
-
-    private void SetPortState(string portName, bool connected)
-    {
-        if (connected)
-            _connectedPorts.Add(portName);
-        else
-            _connectedPorts.Remove(portName);
-
-        OnPropertyChanged(nameof(IsConnected));
-        OnPropertyChanged(nameof(StatusColor));
-        OnPropertyChanged(nameof(IsSelectedPortConnected));
-        OnPropertyChanged(nameof(ToggleButtonText));
-
-        string notConnected = FindStringResource("Str_NotConnected", "未连接");
-        string connectedTo = FindStringResource("Str_ConnectedTo", "已连接");
-        string connectedMulti = FindStringResource("Str_ConnectedMulti", "已连接 {0} 个端口");
-
-        StatusText = _connectedPorts.Count switch
-        {
-            0 => notConnected,
-            1 => $"{connectedTo} {_connectedPorts.First()}",
-            _ => connectedMulti.Replace("{0}", _connectedPorts.Count.ToString())
-        };
-    }
-
-    private static string FindStringResource(string key, string fallback)
-        => Application.Current.TryFindResource(key) as string ?? fallback;
 
     [RelayCommand]
     private async Task OpenPortAsync()

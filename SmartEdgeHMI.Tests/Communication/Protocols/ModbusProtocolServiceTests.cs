@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using SmartEdgeHMI.Common;
-using SmartEdgeHMI.Communication.Protocols;
+using SmartEdgeHMI.Protocols.Services;
 
 namespace SmartEdgeHMI.Tests.Communication.Protocols;
 
@@ -201,5 +201,5 @@ public class ModbusProtocolServiceTests
 internal static class ModbusProtocolServiceTestsHelper
 {
     public static ushort CalcCRC16(ReadOnlySpan<byte> data)
-        => ModbusProtocolService.CalcCRC16(data);
+        => ModbusFrameUtility.CalcCRC16(data);
 }

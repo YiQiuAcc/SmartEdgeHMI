@@ -4,10 +4,11 @@ using System.Windows.Threading;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
-using SmartEdgeHMI.Data.Repositories;
+using SmartEdgeHMI.Database;
+using SmartEdgeHMI.Database.Repositories;
 using SmartEdgeHMI.Extensions;
-using SmartEdgeHMI.Infrastructure;
-using SmartEdgeHMI.Infrastructure.Logging;
+using SmartEdgeHMI.Utils;
+using SmartEdgeHMI.Utils.Logging;
 using SmartEdgeHMI.Views;
 
 namespace SmartEdgeHMI;
@@ -101,7 +102,7 @@ public partial class App : Application
         // 间接安全地初始化静态依赖
         SetStaticDependencies(config, services);
 
-        ServiceProvider.GetRequiredService<SqliteRepository>()
+        ServiceProvider.GetRequiredService<SqliteConnectionFactory>()
             .InitializeDatabaseAsync()
             .GetAwaiter().GetResult();
 
@@ -163,10 +164,10 @@ public partial class App : Application
             var heartbeatClient = ServiceProvider.GetService<WatchdogHeartbeatClient>();
             heartbeatClient?.Dispose();
 
-            var repo = ServiceProvider.GetService<SqliteRepository>();
-            if (repo is not null)
+            var telemetryRepo = ServiceProvider.GetService<ITelemetryRepository>() as IAsyncDisposable;
+            if (telemetryRepo is not null)
             {
-                Task.Run(() => repo.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
+                Task.Run(() => telemetryRepo.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
             }
         }
         finally
