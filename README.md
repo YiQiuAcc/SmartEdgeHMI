@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
 </p>
 
-**基于 .NET 8 WPF 构建的工业边缘上位机，具备零分配协议解析、LTTB 百万级降采样与双进程 Watchdog 守护。**
+**基于 .NET 8 WPF 构建的工业边缘上位机，具备零分配协议解析、LTTB 百万级降采样与双进程 Watchdog 守护。配套 ESP 固件与 Node.js 虚拟设备模拟器，覆盖完整开发-仿真-部署链路。**
 
 <br/>
 
@@ -24,7 +24,7 @@
 
 <br/><br/>
 
-**[下载 Release(Release v1.0.0)](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/download/v1.0.0/SmartEdgeHMI-v1.0.0-win-x64.zip) | [技术栈](#技术栈) | [完整开发路线](#路线图)**
+**[下载 Release (v1.1.0)](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/download/v1.1.0/SmartEdgeHMI-v1.1.0-win-x64.zip) | [技术栈](#技术栈) | [完整开发路线](#路线图)**
 
 </div>
 
@@ -63,15 +63,18 @@
 
 ## TL;DR · 太长不看
 
-| 特性                    | 说明                                                                                                     |
-| ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| **双协议实时通信**      | JSON-Lines（Pipe 无锁流式解析）+ Modbus RTU（半字节查表 CRC16），通过 `IProtocolConfig` 接口解耦协议切换 |
-| **零分配数据通道**      | `Channel<T>` 解耦串口读/写 + `ArrayPool` 复用缓冲区，零分配粘包处理                                      |
-| **百万级趋势渲染**      | LTTB（Largest Triangle Three Buckets）降采样算法，100 万点压缩至 1000 点，首尾保留 + 三角形面积筛选      |
-| **边缘触发报警**        | ISA-18.2 状态机（UNACK → ACK → RTN_UNACK → NORMAL），恢复迟滞防抖机制                                    |
-| **SQLite WAL 双缓冲**   | Channel 批量入队（50 条 / 1s 窗口）→ 异步事务刷盘，读写分离零锁冲突                                      |
-| **Watchdog 双进程守护** | 命名管道心跳检测，主进程无响应时自动强制重启                                                             |
-| **全链路异步**          | 从 `BaseStream.ReadAsync` → `Pipe.Writer.WriteAsync` → `ValueTask` 协议解析，零 sync-over-async          |
+| 特性                    | 说明                                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **双协议实时通信**      | JSON-Lines（Pipe 无锁流式解析）+ Modbus RTU（半字节查表 CRC16），通过 `IProtocolParser` 接口 + Keyed DI 解耦协议切换 |
+| **指令下发通道**        | `DeviceCommunicationCoordinator` 统一管理指令下发，支持设备复位、阈值调整、LED 控制等操作                            |
+| **零分配数据通道**      | `Channel<T>` 解耦串口读/写 + `ArrayPool` 复用缓冲区，零分配粘包处理                                                  |
+| **百万级趋势渲染**      | LTTB（Largest Triangle Three Buckets）降采样算法，100 万点压缩至 1000 点，首尾保留 + 三角形面积筛选                  |
+| **边缘触发报警**        | ISA-18.2 状态机（UNACK → ACK → RTN_UNACK → NORMAL），恢复迟滞防抖机制                                                |
+| **SQLite WAL 双缓冲**   | Channel 批量入队（50 条 / 1s 窗口）→ 异步事务刷盘，读写分离零锁冲突                                                  |
+| **Watchdog 双进程守护** | 命名管道心跳检测，主进程无响应时自动强制重启                                                                         |
+| **全链路异步**          | 从 `BaseStream.ReadAsync` → `Pipe.Writer.WriteAsync` → `ValueTask` 协议解析，零 sync-over-async                      |
+| **ESP8266 真实固件**    | 支持 WiFi 网页仪表盘 + Modbus RTU 串口双模通信，温湿度仿真引擎 + 板载 LED 控制                                       |
+| **虚拟设备模拟器**      | Node.js 双模模拟器，无需硬件即可完成全链路功能验证                                                                   |
 
 ---
 
@@ -84,55 +87,69 @@ graph TB
     subgraph "Presentation Layer (WPF)"
         MV[MonitorViewModel]
         CV[ConnectionViewModel]
-        AV[AlarmHistoryViewModel]
+        AHV[AlarmHistoryViewModel]
         TV[TrendViewModel]
-        LV[LogConsoleViewModel]
+        LCV[LogConsoleViewModel]
+        CHV[ChartViewModel]
+        MainV[MainViewModel]
     end
 
-    subgraph "State Layer"
+    subgraph "Core Domain Layer"
         ASM[AlarmStateMachine<br/>ISA-18.2]
         DSC[DeviceStateContainer<br/>状态快照]
         SS[SettingsService]
+        LOC[LocalizationService]
     end
 
     subgraph "Communication Layer"
         DCC[DeviceCommunicationCoordinator<br/>指令下发]
-        JSON[JsonProtocolService<br/>Pipe 流式解析]
-        MOD[ModbusProtocolService<br/>CRC16 + Pipe 轮询]
+        JSON[JsonProtocolParser<br/>Pipe 流式解析]
+        MOD[ModbusProtocolParser<br/>CRC16 + Pipe 轮询]
+        IProto["IProtocolParser (Keyed DI)"]
     end
 
-    subgraph "Physical Layer"
-        SPS[SerialPortService<br/>双线程 Channel]
-        RP[ReadPortLoop<br/>生产者]
-        FP[ForwardDataLoop<br/>消费者]
+    subgraph "Transport Layer"
+        SPS[SerialPortService<br/>ISerialPortService]
+        RP[生产者 ReadPortLoop<br/>等待数据]
+        FP[消费者 ForwardDataLoop<br/>转发到 Parser]
     end
 
     subgraph "Data Layer"
         SQL[SqliteRepository<br/>IAlarmRepository + ITelemetryRepository]
         LTTB[LttbDownsampler<br/>百万级降采样]
+        Filter[AlarmHistoryFilter<br/>多条件过滤]
     end
 
     subgraph "System Services"
         WD["Watchdog 进程<br/>(独立 exe)"]
         HC[WatchdogHeartbeatClient<br/>3s 间隔心跳]
         LOG[Serilog<br/>异步文件 + UI Sink]
-        LOC[LocalizationService<br/>中/英国际化]
+        I18n[LocalizationService<br/>中/英国际化]
+    end
+
+    subgraph "Firmware & Simulator"
+        ESP[ESP8266 固件<br/>WiFi + Modbus RTU]
+        SIM[Node.js 模拟器<br/>JSON / Modbus 双模]
     end
 
     SPS --> RP
     SPS --> FP
-    FP -->|await OnDataReceivedAsync| JSON
-    FP -->|await OnDataReceivedAsync| MOD
+    FP -->|OnDataReceivedAsync| IProto
+    IProto --> JSON
+    IProto --> MOD
     DCC -->|指令下发| SPS
     JSON -->|DeviceTelemetry| MV
     MOD -->|SensorReading| MV
     MV --> ASM
     MV --> DSC
-    ASM --> AV
+    CHV --> DSC
+    ASM --> AHV
     MV --> SQL
     TV --> SQL
     TV --> LTTB
     HC -.->|命名管道| WD
+    ESP -->|Modbus RTU / 串口| SPS
+    SIM -->|JSON 或 Modbus| SPS
 ```
 
 ### 数据流
@@ -141,7 +158,8 @@ graph TB
 sequenceDiagram
     participant HW as 硬件/模拟器
     participant SP as SerialPortService
-    participant Parser as 协议解析器
+    participant Parser as 协议解析器 (IProtocolParser)
+    participant Coord as DeviceCommunicationCoordinator
     participant VM as MonitorViewModel
     participant State as AlarmStateMachine
     participant DB as SqliteRepository
@@ -160,6 +178,11 @@ sequenceDiagram
             VM->>VM: HasPendingAlarms = true
         end
     end
+
+    loop 上位机指令下发
+        Coord->>SP: 下发指令报文 (Modbus FC06 / 其他)
+        SP->>HW: SerialPort.WriteAsync
+    end
 ```
 
 ---
@@ -168,22 +191,36 @@ sequenceDiagram
 
 ### 双协议通信
 
-| 协议           | 数据格式              | 方向                      | 特点                                                   |
-| -------------- | --------------------- | ------------------------- | ------------------------------------------------------ |
-| **JSON-Lines** | 换行符分隔 JSON       | 设备 → 上位机（主动上报） | `System.IO.Pipelines` 无锁流式解析，`ArrayPool` 零分配 |
-| **Modbus RTU** | 03 读/06 写保持寄存器 | 上位机 → 设备（轮询应答） | 半字节查表 CRC16，Pipe 滑动窗口粘包处理，1s 定时轮询   |
+| 协议           | 数据格式              | 方向                        | 特点                                                   |
+| -------------- | --------------------- | --------------------------- | ------------------------------------------------------ |
+| **JSON-Lines** | 换行符分隔 JSON       | 设备 → 上位机（主动上报）   | `System.IO.Pipelines` 无锁流式解析，`ArrayPool` 零分配 |
+| **Modbus RTU** | 03 读/06 写保持寄存器 | 双向（轮询应答 + 指令下发） | 半字节查表 CRC16，Pipe 滑动窗口粘包处理，1s 定时轮询   |
+
+### 指令下发 (DeviceCommunicationCoordinator)
+
+- 统一封装指令下发逻辑，通过 `IDeviceCommunicationCoordinator` 接口抽象
+- 支持设备复位 (Reset)、报警阈值调整 (SetThreshold)、LED 状态控制 (SetLedState) 等操作
+- 通过 Keyed Service DI 按协议类型自动选择解析器
 
 ### 实时监控
 
 - 连接状态指示灯（红/绿）、COM 口/波特率/协议选择
-- ScottPlot 实时曲线图（30 FPS DataLogger）
+- ScottPlot 实时曲线图（ChartViewModel 驱动，30 FPS DataLogger）
 - 温度报警阈值滑块（防抖保存）、设备紧急复位按钮
 
 ### 报警与日志
 
 - **边缘触发报警状态机**（ISA-18.2）：上升沿记录、恢复迟滞计数（3 帧连续正常才判定恢复），防止阈值边界震荡
-- 报警数据直写 SQLite，支持按设备/时间段/报警码过滤查询
+- 报警历史支持按设备/时间段/报警码/报警状态多条件组合过滤 (`AlarmHistoryFilter`)
+- `AlarmStatesChanged` 事件驱动 UI 更新，支持一键确认 (AcknowledgeAll)
 - 系统日志实时展示，ERROR 级别红色高亮
+
+### 图表管理 (ChartViewModel)
+
+- 独立 ViewModel 管理实时/历史数据流，不直接操作 ScottPlot 控件
+- `LiveDataPointAdded` 事件驱动实时曲线更新
+- `HistoryDataLoaded` 事件加载历史趋势，配合 LTTB 降采样
+- `ClearToLiveMode` 从历史模式切回实时模式
 
 ### 边缘存储
 
@@ -225,6 +262,27 @@ sequenceDiagram
 - `Humidity`：百分比湿度，`FromPercent` / `FromRawModbus`
 - 与 SQLite 之间通过 Dapper `TypeHandler` 自动转换
 
+### 固件 (Firmware)
+
+ESP8266 真实硬件固件 (PlatformIO)，支持双模通信：
+
+| 特性                | 说明                                                                |
+| ------------------- | ------------------------------------------------------------------- |
+| **WiFi 网页仪表盘** | 内嵌 HTML/CSS/JS 实时看板，1Hz AJAX 异步刷新                        |
+| **Modbus RTU 从站** | 5 个保持寄存器（温度/湿度/状态/错误码/LED），支持 FC03 读 + FC06 写 |
+| **温湿度仿真引擎**  | 随机波动模型，超阈值自动触发报警状态                                |
+| **板载 LED 控制**   | 上位机可远程控制 LED 状态，复位时闪烁 3 次                          |
+| **LED 物理反馈**    | 执行设备复位命令时，LED 快速闪烁 3 次提供物理操作确认               |
+
+### 虚拟设备模拟器 (Simulator)
+
+Node.js 双模模拟器，无需硬件即可验证全链路功能：
+
+| 模式        | 命令                  | 说明                                  |
+| ----------- | --------------------- | ------------------------------------- |
+| JSON 模式   | `pnpm run sim:json`   | 主动上报 JSON-Lines 数据，1 次/秒     |
+| Modbus 模式 | `pnpm run sim:modbus` | 一问一答 Modbus RTU，模拟真实设备应答 |
+
 ---
 
 ## 项目结构
@@ -232,30 +290,45 @@ sequenceDiagram
 ```
 SmartEdgeHMI/                    # 主应用：入口、DI 容器、全局配置
 ├── Common/                      # 公共定义：系统常量、设置模型、枚举
-├── Communication/               # 通信层：串口服务、Modbus/JSON 协议解析
-│   ├── Ports/                   # 串口封装：双线程 Channel 读写
-│   └── Protocols/               # 协议实现：JSON-Lines、Modbus RTU + CRC16
-├── Data/                        # 数据持久化层：SQLite 仓储 + 报警/遥测实体
-│   ├── Entities/                # 数据实体模型
-│   └── Repositories/            # 仓储实现（双缓冲批量写入）
-├── State/                       # 领域状态层：ISA-18.2 报警状态机、设备状态容器
-├── Models/                      # 数据传输层：通信 DTO、消息事件、值对象
-│   ├── Dtos/                    # 通信契约（上下行报文）
+├── Core/                        # 核心领域层
+│   ├── Domain/
+│   │   ├── MachineState/        # 报警状态机 (ISA-18.2) + 设备状态容器
+│   │   └── ValueObjects/        # 值对象 (Temperature / Humidity)
+│   └── Services/                # 核心服务（设置、国际化、Watchdog 心跳）
+├── Protocols/                   # 协议层：串口传输 + 协议解析 (Keyed DI)
+│   ├── Parsers/
+│   │   ├── Json/                # JSON-Lines 流式解析器
+│   │   └── Modbus/              # Modbus RTU 解析器 (CRC16 查表、报文工具)
+│   └── Transports/
+│       └── Serial/              # 串口服务（双线程 Channel 读写）
+├── Data/                        # 数据持久化层
+│   ├── Entities/                # 报警记录、遥测数据实体
+│   ├── Filters/                 # 报警历史多条件过滤器
+│   └── Repositories/            # SQLite 仓储（双缓冲批量写入）
+├── Models/                      # 传输模型层
+│   ├── Dtos/                    # 通信契约（上行/下行报文）
 │   ├── Messages/                # 强类型 Messenger 事件
-│   └── ValueObjects/            # 值对象（Temperature、Humidity）
-├── ViewModels/                  # MVVM 视图模型：连接/监控/报警/趋势/日志
+│   └── Logging/                 # 系统日志模型
+├── ViewModels/                  # MVVM 视图模型（连接/监控/报警/趋势/日志/图表）
 ├── Views/                       # WPF 界面
-│   └── Windows/                 # 窗口定义
-├── Infrastructure/              # 基础设施：Watchdog 心跳、国际化、日志、降采样
-│   ├── Logging/                 # Serilog 异步文件 + WPF UI Sink
+│   ├── Controls/                # 用户控件（连接栏、监控面板、图表、报警日志选项卡）
+│   ├── Converters/              # 值转换器
+│   └── Windows/                 # 主窗口定义
+├── Utils/                       # 基础设施工具
+│   ├── Logging/                 # 自定义 Serilog Sink (输出到 UI)
 │   ├── Math/                    # LTTB 三角形面积降采样
 │   └── UI/                      # 批量添加 ObservableCollection
 ├── Extensions/                  # DI 容器扩展注册
-└── Resources/                   # WPF 资源字典（颜色、中/英字符串）
+├── Resources/                   # WPF 资源字典（颜色、中/英字符串）
+├── appsettings.json             # 全局配置
+├── App.xaml / App.xaml.cs       # 应用入口（Mutex 防重复启动 + 全局异常处理）
+└── SmartEdgeHMI.csproj          # .NET 8 WPF 项目文件
 
-SmartEdgeHMI.Watchdog/           # 独立 Watchdog 守护进程：命名管道、进程监控/重启
-SmartEdgeHMI.Tests/              # 单元测试：CRC16、Modbus/JSON 协议、报警状态机（39 个）
-Simulator/                       # Node.js 虚拟设备模拟器：JSON + Modbus 双模模拟
+SmartEdgeHMI.Watchdog/           # 独立 Watchdog 守护进程（命名管道、进程监控/重启）
+SmartEdgeHMI.Tests/              # 单元测试（39 个：状态机 13 + JSON 解析 10 + Modbus 解析 13 + CRC 表 3）
+Firmware/                        # ESP8266 真实硬件固件 (PlatformIO)
+└── src/                         # 固件源码（WiFi 网页仪表盘 + Modbus RTU 从站）
+Simulator/                       # Node.js 虚拟设备模拟器（JSON / Modbus 双模）
 ```
 
 ---
@@ -293,23 +366,37 @@ dotnet test SmartEdgeHMI.Tests/SmartEdgeHMI.Tests.csproj
 # 期望：39 passed，0 failed
 ```
 
+### 烧录固件 (可选)
+
+```bash
+# 使用 PlatformIO 烧录 ESP8266 固件
+cd Firmware
+# 编辑 src/secrets.h 填入 WiFi 凭据
+pio run --target upload
+```
+
 ---
 
 ## 技术栈
 
-| 层次     | 技术选型                                                 |
-| -------- | -------------------------------------------------------- |
-| UI 框架  | WPF (.NET 8)                                             |
-| 架构模式 | MVVM（CommunityToolkit.Mvvm 源码生成器）                 |
-| 物理通信 | System.IO.Ports（串口）                                  |
-| 协议解析 | JSON-Lines、Modbus RTU（半字节查表 CRC16）               |
-| 数据通道 | System.Threading.Channels（批量缓冲 + 直接 await）       |
-| 实时图表 | ScottPlot.WPF（SkiaSharp 渲染，30 FPS）                  |
-| 边缘存储 | SQLite + Dapper（WAL 模式 + TypeHandler）                |
-| 日志     | Serilog（异步文件 + WPF UI Sink）                        |
-| 依赖注入 | Microsoft.Extensions.DependencyInjection（KeyedService） |
-| 进程守护 | System.IO.Pipes（NamedPipeServerStream）                 |
-| 配置     | Microsoft.Extensions.Configuration（JSON）               |
+| 层次       | 技术选型                                                      |
+| ---------- | ------------------------------------------------------------- |
+| UI 框架    | WPF (.NET 8)                                                  |
+| 架构模式   | MVVM（CommunityToolkit.Mvvm 源码生成器）                      |
+| 物理通信   | System.IO.Ports（串口）                                       |
+| 协议解析   | JSON-Lines、Modbus RTU（半字节查表 CRC16）                    |
+| 协议解耦   | Keyed Service DI（`IProtocolParser` 按 "JSON"/"Modbus" 注入） |
+| 数据通道   | System.Threading.Channels（批量缓冲 + 直接 await）            |
+| 实时图表   | ScottPlot.WPF（SkiaSharp 渲染，30 FPS）                       |
+| 边缘存储   | SQLite + Dapper（WAL 模式 + TypeHandler）                     |
+| 日志       | Serilog（异步文件 + WPF UI Sink + Enrichers.Thread）          |
+| 依赖注入   | Microsoft.Extensions.DependencyInjection（KeyedService）      |
+| 进程守护   | System.IO.Pipes（NamedPipeServerStream）                      |
+| 配置       | Microsoft.Extensions.Configuration（JSON + 强类型绑定）       |
+| 数据管道   | System.IO.Pipelines（零分配流式解析）                         |
+| 单元测试   | xUnit v3（39 tests，含状态机/协议/CRC 全覆盖）                |
+| 硬件固件   | PlatformIO + ESP8266（Arduino框架）                           |
+| 设备模拟器 | Node.js + serialport + modbus-serial                          |
 
 ---
 
