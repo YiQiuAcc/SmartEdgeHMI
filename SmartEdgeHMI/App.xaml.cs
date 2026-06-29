@@ -92,7 +92,7 @@ public partial class App : Application
 
         var config = new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
             .Build();
 
         var services = new ServiceCollection()

@@ -7,6 +7,9 @@ obj/
 *.sln.docstates
 *.userprefs
 .claude
+# 忽略所有发布配置文件
+*.pubxml
+*.pubxml.user
 dist/
 
 ## VS Code
