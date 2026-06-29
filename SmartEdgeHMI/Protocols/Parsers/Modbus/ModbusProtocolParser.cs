@@ -32,6 +32,9 @@ public class ModbusProtocolParser : IProtocolParser
     public const ushort RegisterThreshold = 0x0002;
     public string Key => "Modbus";
 
+    /// <summary>轮询启动延迟 (ms)</summary>
+    private const int PollStartupDelayMs = 1000;
+
     public ModbusProtocolParser(ITransportService transport,
         IProtocolConfig protocolConfig, IDeviceStateContainer deviceState,
         IAlarmStateMachine alarmStateMachine, ISettingsService settingsService)
@@ -101,12 +104,18 @@ public class ModbusProtocolParser : IProtocolParser
         {
             case ConnectionState.Connected:
                 if (_protocolConfig.SelectedProtocol == CommunicationProtocol.Modbus)
+                {
+                    if (_pipes.ContainsKey(portName))
+                        CleanupPipe(portName);
                     StartPolling(portName);
+                }
                 break;
             case ConnectionState.Disconnected:
-            case ConnectionState.Error:
                 StopPolling(portName);
                 CleanupPipe(portName);
+                break;
+            case ConnectionState.Error:
+                StopPolling(portName);
                 break;
         }
     }
@@ -146,6 +155,15 @@ public class ModbusProtocolParser : IProtocolParser
 
     private async Task PollLoopAsync(string portName, CancellationToken ct)
     {
+        try
+        {
+            await Task.Delay(PollStartupDelayMs, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_settingsService.Current.Modbus.PollingIntervalMs));
         byte[] data = new byte[4];
         try
@@ -235,7 +253,7 @@ public class ModbusProtocolParser : IProtocolParser
 
         // 检查整个管道中现存的所有数据总和, 是否满足期望的帧长度
         if (reader.Remaining < expectedLength)
-            return false; // 帧不完整, 返回 false 等待更多数据
+            return false;
 
         byte[]? rented = null;
         try

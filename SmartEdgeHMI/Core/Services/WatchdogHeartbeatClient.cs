@@ -38,7 +38,7 @@ public sealed class WatchdogHeartbeatClient(ISettingsService settingsService) : 
 #if DEBUG
 
 #else
-            Log.Debug("Watchdog 未运行或未就绪, {Interval}ms 后重试...", _settingsService.Current.Watchdog.HeartbeatIntervalMs);
+            Log.Debug("Watchdog 未运行或未就绪, {Interval}ms 后重试...", settingsService.Current.Watchdog.HeartbeatIntervalMs);
 #endif
             }
             catch (OperationCanceledException) { break; }

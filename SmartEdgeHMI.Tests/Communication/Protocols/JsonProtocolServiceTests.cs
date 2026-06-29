@@ -13,7 +13,9 @@ namespace SmartEdgeHMI.Tests.Communication.Protocols;
 public class JsonProtocolServiceTests
 {
     private static readonly MethodInfo _processLineMethod = typeof(JsonProtocolParser)
-        .GetMethod("ProcessLine", BindingFlags.NonPublic | BindingFlags.Static)!;
+        .GetMethod("ProcessLine", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+    private static readonly JsonProtocolParser _parser = new(new FakeDeviceStateContainer());
 
     /// <summary>验证完整有效 JSON 可以正确反序列化为 TelemetryPayload</summary>
     [Fact]
@@ -124,6 +126,36 @@ public class JsonProtocolServiceTests
 
     private static void InvokeProcessLine(string portName, ReadOnlySequence<byte> line)
     {
-        _processLineMethod.Invoke(null, [portName, line]);
+        _processLineMethod.Invoke(_parser, [portName, line]);
+    }
+
+    private class FakeDeviceStateContainer : SmartEdgeHMI.Core.Domain.MachineState.IDeviceStateContainer
+    {
+#pragma warning disable CS0067
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+#pragma warning restore CS0067
+        public SmartEdgeHMI.Core.Domain.ValueObjects.Temperature LatestTemperature => default;
+        public SmartEdgeHMI.Core.Domain.ValueObjects.Humidity LatestHumidity => default;
+        public DeviceStatus LatestDeviceStatus => default;
+        public ErrorCode LatestErrorCode => default;
+        public DataQuality LatestQuality => default;
+        public DateTime LatestTimestamp => default;
+        public string LatestPortName => "";
+
+        public IReadOnlyDictionary<string, ErrorCode> GetActiveAlarms() => new Dictionary<string, ErrorCode>();
+        public bool HasActiveAlarms => false;
+
+        public bool IsPortConnected(string portName) => false;
+
+        public IReadOnlySet<string> GetConnectedPorts() => new HashSet<string>();
+
+        public void UpdateTelemetry(string portName, SmartEdgeHMI.Core.Domain.ValueObjects.Temperature temperature, SmartEdgeHMI.Core.Domain.ValueObjects.Humidity humidity,
+            DeviceStatus status, ErrorCode error, DataQuality quality)
+        { }
+        public void UpdateConnectionState(string portName, SmartEdgeHMI.Models.Messages.ConnectionState state)
+        { }
+
+        public void UpdateActiveAlarms(IReadOnlyDictionary<string, ErrorCode> alarms)
+        { }
     }
 }
