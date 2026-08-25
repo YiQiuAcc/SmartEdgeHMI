@@ -12,6 +12,7 @@ using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.Protocols;
 using SmartEdgeHMI.Protocols.Transports;
+using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.ViewModels;
 
@@ -107,7 +108,7 @@ public partial class MonitorViewModel : ViewModelBase,
 
             var alarmRecord = _alarmStateMachine.Evaluate(payload);
             if (alarmRecord is not null)
-                _ = HandleNewAlarmAsync(alarmRecord);
+                _ = HandleNewAlarmAsync(alarmRecord).ObserveAndLogAsync("处理新报警");
         }
         catch (Exception ex)
         {
