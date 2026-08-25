@@ -8,6 +8,7 @@ using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Core.Domain.MachineState;
 using SmartEdgeHMI.Models.Dtos;
 using SmartEdgeHMI.Models.Messages;
+using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.Protocols.Parsers.Json;
 
@@ -27,7 +28,8 @@ public class JsonProtocolParser(IDeviceStateContainer deviceState) : IProtocolPa
         var state = _pipes.GetOrAdd(portName, key =>
         {
             var s = new PortPipeState();
-            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(key, s));
+            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(key, s))
+                .ObserveAndLogAsync($"[JSON] {key} 管道处理任务");
             return s;
         });
 

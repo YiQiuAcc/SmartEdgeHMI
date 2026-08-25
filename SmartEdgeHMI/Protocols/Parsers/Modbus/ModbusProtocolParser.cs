@@ -10,6 +10,7 @@ using SmartEdgeHMI.Core.Domain.ValueObjects;
 using SmartEdgeHMI.Core.Services;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.Protocols.Transports;
+using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.Protocols.Parsers.Modbus;
 
@@ -92,7 +93,8 @@ public class ModbusProtocolParser : IProtocolParser
         var state = _pipes.GetOrAdd(portName, key =>
         {
             var s = new PortPipeState();
-            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(key, s));
+            s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(key, s))
+                .ObserveAndLogAsync($"[Modbus] {key} 管道处理任务");
             return s;
         });
         await state.Pipe.Writer.WriteAsync(data);
@@ -144,7 +146,8 @@ public class ModbusProtocolParser : IProtocolParser
     {
         var cts = new CancellationTokenSource();
         if (!_pollingTokens.TryAdd(portName, cts)) { cts.Dispose(); return; }
-        _ = Task.Run(() => PollLoopAsync(portName, cts.Token), cts.Token);
+        _ = Task.Run(() => PollLoopAsync(portName, cts.Token), cts.Token)
+            .ObserveAndLogAsync($"[Modbus] {portName} 轮询任务");
         Log.Information("[Modbus] 已启动 {Port} 的轮询任务 (间隔 {Interval}ms)", portName, _settingsService.Current.Modbus.PollingIntervalMs);
     }
 

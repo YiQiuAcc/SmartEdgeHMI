@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Pipes;
 using Serilog;
+using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.Core.Services;
 
@@ -15,7 +16,8 @@ public sealed class WatchdogHeartbeatClient(ISettingsService settingsService) : 
     /// <summary>启动心跳发送后台任务, Watchdog 未运行时内部自动重连</summary>
     public void Start()
     {
-        _ = Task.Run(() => RunAsync(_cts.Token));
+        _ = Task.Run(() => RunAsync(_cts.Token))
+            .ObserveAndLogAsync("Watchdog 心跳任务");
         Log.Information("Watchdog 心跳发送已启动 (间隔 {Interval}ms)", settingsService.Current.Watchdog.HeartbeatIntervalMs);
     }
 

@@ -8,6 +8,7 @@ using Serilog;
 using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.Protocols.Parsers;
+using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.Protocols.Transports.Serial;
 
@@ -32,6 +33,7 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
     {
         public SerialPort Port { get; set; } = port;
         public CancellationTokenSource Cts { get; set; } = cts;
+        public CancellationToken Token { get; } = cts.Token;
         public SemaphoreSlim WriteLock { get; } = new SemaphoreSlim(1, 1);
 
         public void Dispose()
@@ -89,7 +91,8 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
             return;
         }
 
-        _ = Task.Run(() => RunReadLoopWithReconnectAsync(portName, baudRate, context), cts.Token);
+        _ = Task.Run(() => RunReadLoopWithReconnectAsync(portName, baudRate, context), context.Token)
+            .ObserveAndLogAsync($"[SerialPort] {portName} 后台读取任务");
     }
 
     private async Task RunReadLoopWithReconnectAsync(string portName, int baudRate, PortContext ctx)
@@ -128,10 +131,10 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
             CommunicationProtocol? lastProtocol = null;
             IProtocolParser? cachedParser = null;
 
-            while (!ctx.Cts.Token.IsCancellationRequested)
+            while (!ctx.Token.IsCancellationRequested)
             {
                 // 读取底层数据
-                int bytesRead = ReadFromPortSafe(ctx.Port, buffer, ctx.Cts.Token, out bool shouldExit);
+                int bytesRead = ReadFromPortSafe(ctx.Port, buffer, ctx.Token, out bool shouldExit);
                 if (shouldExit) return false;
                 if (bytesRead < 0) continue;
                 // 降低 DI 容器检索频率, 仅在协议切换时更新 Parser
@@ -173,7 +176,7 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
 
         try
         {
-            await Task.Delay(delay, ctx.Cts.Token);
+            await Task.Delay(delay, ctx.Token);
         }
         catch (OperationCanceledException)
         {
@@ -208,7 +211,7 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
     {
         try
         {
-            await Task.Delay(StabilizationDelayMs, ctx.Cts.Token);
+            await Task.Delay(StabilizationDelayMs, ctx.Token);
             return true;
         }
         catch (OperationCanceledException)
@@ -221,7 +224,7 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
     {
         bool ok = await ReadLoopAsync(portName, ctx);
         // 如果是外部触发了 CancellationToken 取消或者宿主被 Dispose 了解构, 应视作“不需要再重连”, 直接返回 true
-        if (_disposed || ctx.Cts.Token.IsCancellationRequested) return true;
+        if (_disposed || ctx.Token.IsCancellationRequested) return true;
         return ok;
     }
 
@@ -295,7 +298,7 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
         if (!_activePorts.TryGetValue(endpoint, out var ctx) || !ctx.Port.IsOpen)
             return;
 
-        await ctx.WriteLock.WaitAsync(ctx.Cts.Token);
+        await ctx.WriteLock.WaitAsync(ctx.Token);
         try
         {
             ctx.Port.Write(data, 0, length);
@@ -317,7 +320,7 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
 
         byte[] data = Encoding.UTF8.GetBytes(text + "\n");
 
-        await ctx.WriteLock.WaitAsync(ctx.Cts.Token);
+        await ctx.WriteLock.WaitAsync(ctx.Token);
         try
         {
             ctx.Port.Write(data, 0, data.Length);
