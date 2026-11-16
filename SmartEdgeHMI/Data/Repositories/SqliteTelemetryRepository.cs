@@ -45,22 +45,53 @@ public sealed class SqliteTelemetryRepository : ITelemetryRepository, IAsyncDisp
 
     public async Task<List<SensorReadingRecord>> GetTelemetryHistoryAsync(DateTime from, DateTime to, int targetPoints)
     {
+        // 空区间无数据可查, 直接返回空列表
+        if (to <= from)
+            return [];
+
         try
         {
             await using var connection = await _factory.CreateConnectionAsync();
 
             DateTime toInclusive = to.Date.Equals(to) ? to.Date.AddDays(1).AddTicks(-1) : to;
 
-            var rawData = (await connection.QueryAsync<SensorReadingRecord>("""
-                SELECT * FROM TelemetryHistory
-                WHERE Timestamp >= @From AND Timestamp <= @To
+            // LTTB 至少需要 3 个点, targetPoints < 3 时退化为原始查询: 范围内全部行, 不降采样
+            if (targetPoints < 3)
+            {
+                return [.. await connection.QueryAsync<SensorReadingRecord>("""
+                    SELECT * FROM TelemetryHistory
+                    WHERE Timestamp >= @From AND Timestamp <= @To
+                    ORDER BY Timestamp ASC
+                    """, new { From = from, To = toInclusive })];
+            }
+
+            // 桶宽公式: 查询区间总秒数均分到 targetPoints 个桶, 下限 1 秒避免桶宽小于采样间隔
+            double bucketSeconds = Math.Max(1, (to - from).TotalSeconds / targetPoints);
+
+            // 每桶取温度最小值和最大值所在的两个真实采样点(而非聚合均值), 用于保留尖峰不被平均抹平;
+            // 桶序号 = floor((行时间 - @From) 折算秒数 / 桶宽), 过滤与取样全部下推 SQL, 只回传采样点行
+            var sampled = (await connection.QueryAsync<SensorReadingRecord>("""
+                WITH Bucketed AS (
+                    SELECT Timestamp, DeviceId, Temperature, Humidity, StatusCode, ErrorCode, QualityCode,
+                           CAST((julianday(Timestamp) - julianday(@From)) * 86400.0 / @BucketSeconds AS INTEGER) AS Bucket
+                    FROM TelemetryHistory
+                    WHERE Timestamp >= @From AND Timestamp <= @To
+                ),
+                Ranked AS (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY Bucket ORDER BY Temperature ASC)  AS MinRank,
+                              ROW_NUMBER() OVER (PARTITION BY Bucket ORDER BY Temperature DESC) AS MaxRank
+                    FROM Bucketed
+                )
+                SELECT Timestamp, DeviceId, Temperature, Humidity, StatusCode, ErrorCode, QualityCode
+                FROM Ranked WHERE MinRank = 1 OR MaxRank = 1
                 ORDER BY Timestamp ASC
-                """, new { From = from, To = toInclusive })).AsList();
+                """, new { From = from, To = toInclusive, BucketSeconds = bucketSeconds })).AsList();
 
-            if (rawData.Count <= targetPoints)
-                return rawData;
-
-            return LttbDownsampler.Downsample(rawData, targetPoints);
+            // 每桶最多 2 行, 但整日扩展(toInclusive)等因素会让实际桶数略多于 targetPoints;
+            // 采样后条数仍超出时再走一次 LTTB, 保证返回条数不超过 targetPoints(保持调用方语义)
+            return sampled.Count > targetPoints
+                ? LttbDownsampler.Downsample(sampled, targetPoints)
+                : sampled;
         }
         catch (Exception ex)
         {
