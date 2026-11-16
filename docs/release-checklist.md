@@ -13,9 +13,7 @@
 
 ## 2. 构建与测试
 
-- [ ] `dotnet restore SmartEdgeHMI.sln` 成功，无新增警告
-- [ ] `dotnet build SmartEdgeHMI.sln -c Release` 0 错误
-- [ ] `dotnet test SmartEdgeHMI.sln -c Release --no-build` 全绿，通过数：________（记录实际值）
+- [ ] `pwsh tools/package.ps1 -Version {版本}` 一键完成 test / publish / zip / SHA256（隐含 restore + build；勿用 `-SkipTests`；确需跳过时须另行补跑测试并记录），测试全绿，通过数：________（记录实际值）
 - [ ] `dotnet format SmartEdgeHMI.sln --verify-no-changes --no-restore` 退出码 0
 
 ## 3. 基准数据是否更新
@@ -49,10 +47,11 @@
 
 ## 7. 打包与校验和
 
-- [ ] 产物命名：`SmartEdgeHMI-v{版本}-win-x64.zip`
+- [ ] 打包执行：`pwsh tools/package.ps1 -Version {版本}`（publish / 压缩 / SHA256 一键完成，产物输出至 `dist/`）
+- [ ] 产物命名：`SmartEdgeHMI-{版本}-win-x64.zip`（脚本按 `-Version` / `-Runtime` 生成，tag 前缀 `v` 已去除）
 - [ ] 包内容核对：主程序 exe + Watchdog exe + `appsettings.json` + 运行所需依赖；不含源码 / 测试 / 基准工程 / 模拟器
 - [ ] 干净目录（及一台无开发环境的机器）解压后可直接启动
-- [ ] 生成 SHA256 校验和，记录到 Release Notes：
+- [ ] SHA256 校验和（脚本自动写入 `dist/<zip>.sha256`，格式 `<hash>  <文件名>`），记录到 Release Notes：
       `SHA256: ________________________________________`
 
 ## 8. Release Notes
