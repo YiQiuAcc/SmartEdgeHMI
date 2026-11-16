@@ -3,6 +3,7 @@ using SmartEdgeHMI.Core.Domain.MachineState;
 using SmartEdgeHMI.Core.Services;
 using SmartEdgeHMI.Data;
 using SmartEdgeHMI.Data.Repositories;
+using SmartEdgeHMI.Data.Retention;
 using SmartEdgeHMI.Protocols;
 using SmartEdgeHMI.Protocols.Parsers;
 using SmartEdgeHMI.Protocols.Parsers.Json;
@@ -23,6 +24,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SqliteConnectionFactory>();
         services.AddSingleton<ITelemetryRepository, SqliteTelemetryRepository>();
         services.AddSingleton<IAlarmRepository, SqliteAlarmRepository>();
+        services.AddSingleton<IDataRetentionService, DataRetentionService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IDeviceStateContainer, DeviceStateContainer>();
         services.AddKeyedSingleton<IProtocolParser, JsonProtocolParser>("JSON");

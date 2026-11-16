@@ -7,6 +7,7 @@ using Serilog;
 using SmartEdgeHMI.Core.Services;
 using SmartEdgeHMI.Data;
 using SmartEdgeHMI.Data.Repositories;
+using SmartEdgeHMI.Data.Retention;
 using SmartEdgeHMI.Extensions;
 using SmartEdgeHMI.Utils.Logging;
 using SmartEdgeHMI.Views;
@@ -107,6 +108,9 @@ public partial class App : Application
             .InitializeDatabaseAsync()
             .GetAwaiter().GetResult();
 
+        // 启动数据保留策略后台清理(Start 内部自建循环, 此处不 await, 失败不影响主程序)
+        ServiceProvider.GetRequiredService<IDataRetentionService>().Start();
+
         // 启动 Watchdog 心跳客户端
         var heartbeatClient = ServiceProvider.GetRequiredService<WatchdogHeartbeatClient>();
         heartbeatClient.Start();
@@ -165,10 +169,26 @@ public partial class App : Application
             var heartbeatClient = ServiceProvider.GetService<WatchdogHeartbeatClient>();
             heartbeatClient?.Dispose();
 
+            // 数据保留服务与遥测仓储一并收尾, 合计最多等 5 秒, 异常只记日志不阻断退出
+            var retentionService = ServiceProvider.GetService<IDataRetentionService>() as IAsyncDisposable;
             var telemetryRepo = ServiceProvider.GetService<ITelemetryRepository>() as IAsyncDisposable;
-            if (telemetryRepo is not null)
+
+            if (retentionService is not null || telemetryRepo is not null)
             {
-                Task.Run(() => telemetryRepo.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
+                Task.Run(async () =>
+                {
+                    if (retentionService is not null)
+                    {
+                        try { await retentionService.DisposeAsync(); }
+                        catch (Exception ex) { Log.Warning(ex, "[Retention] 服务退出清理异常"); }
+                    }
+
+                    if (telemetryRepo is not null)
+                    {
+                        try { await telemetryRepo.DisposeAsync(); }
+                        catch (Exception ex) { Log.Warning(ex, "[TelemetryRepo] 退出清理异常"); }
+                    }
+                }).Wait(TimeSpan.FromSeconds(5));
             }
         }
         finally
