@@ -11,16 +11,19 @@
   <br/>
   <img src="https://img.shields.io/badge/Modbus-RTU%20CRC16-important" alt="Modbus RTU" />
   <img src="https://img.shields.io/badge/watchdog-named%20pipe-blue" alt="Watchdog" />
-  <img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status" />
-  <img src="https://img.shields.io/badge/tests-39%20passed-brightgreen" alt="Tests: 39 passed" />
-  <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
+  <a href="https://github.com/YiQiuAcc/SmartEdgeHMI/actions/workflows/ci.yml">
+    <img src="https://github.com/YiQiuAcc/SmartEdgeHMI/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
+  </a>
 </p>
 
-**基于 .NET 8 WPF 构建的工业边缘上位机，具备零分配协议解析、LTTB 百万级降采样与双进程 Watchdog 守护。配套 ESP 固件与 Node.js 虚拟设备模拟器，覆盖完整开发-仿真-部署链路。**
+**基于 .NET 8 WPF 构建的工业边缘上位机，具备 ArrayPool 缓冲复用的流式协议解析、LTTB 百万级降采样与双进程 Watchdog 守护。配套 ESP 固件与 Node.js 虚拟设备模拟器，覆盖完整开发-仿真-部署链路。**
 
 <br/>
 
-<img src="连接 Modbus.gif" alt="SmartEdge-HMI 主界面演示" width="850" />
+<img src="docs/assets/modbus-connection.gif" alt="SmartEdge-HMI 主界面演示" width="850" />
 
 <br/><br/>
 
@@ -38,11 +41,11 @@
     <th width="50%" align="center">ISA-18.2 报警状态机交互</th>
   </tr>
   <tr>
-    <td align="center"><img src="LTTB 数据降采样.gif" width="400" alt="LTTB 数据降采样"/></td>
-    <td align="center"><img src="ISA-18.2 状态机.gif" width="400" alt="ISA-18.2 状态机"/></td>
+    <td align="center"><img src="docs/assets/lttb-downsampling.gif" width="400" alt="LTTB 数据降采样"/></td>
+    <td align="center"><img src="docs/assets/isa18-alarm-state-machine.gif" width="400" alt="ISA-18.2 状态机"/></td>
   </tr>
   <tr>
-    <td><b>突破性能瓶颈</b>：针对海量历史趋势，底层采用 LTTB 算法，将百万级采样点无损特征压缩，保障 ScottPlot 图表 60FPS 极速渲染。</td>
+    <td><b>突破性能瓶颈</b>：针对海量历史趋势，底层采用 LTTB 算法，将百万级采样点压缩至千点级（100 万点 → 1000 点单次实测 13.8 ms / 分配 7.87 KB，i7-12650H · Windows 11 · .NET 11 运行时，见<a href="docs/performance-benchmarks.md">性能基准</a>）；端到端渲染帧率未实测。</td>
     <td><b>工业级报警模型</b>：严格遵循 ISA-18.2 国际标准，实现"未确认/已确认/恢复"的完整闭环，并由独立线程安全分发至 UI。</td>
   </tr>
   <tr>
@@ -50,7 +53,7 @@
     <th align="center">Watchdog 守护进程防护</th>
   </tr>
   <tr>
-    <td align="center"><img src="i18n.gif" width="400" alt="国际化切换"/></td>
+    <td align="center"><img src="docs/assets/i18n-switching.gif" width="400" alt="国际化切换"/></td>
     <td align="center"><img src="https://img.shields.io/badge/Daemon-Active-success?style=for-the-badge&logo=dependabot" width="150" style="margin:80px 0;"/><br/><i>(守护进程为纯后台运行)</i></td>
   </tr>
   <tr>
@@ -67,10 +70,10 @@
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | **双协议实时通信**      | JSON-Lines（Pipe 无锁流式解析）+ Modbus RTU（半字节查表 CRC16），通过 `IProtocolParser` 接口 + Keyed DI 解耦协议切换 |
 | **指令下发通道**        | `DeviceCommunicationCoordinator` 统一管理指令下发，支持设备复位、阈值调整、LED 控制等操作                            |
-| **零分配数据通道**      | `Channel<T>` 解耦串口读/写 + `ArrayPool` 复用缓冲区，零分配粘包处理                                                  |
-| **百万级趋势渲染**      | LTTB（Largest Triangle Three Buckets）降采样算法，100 万点压缩至 1000 点，首尾保留 + 三角形面积筛选                  |
+| **缓冲复用数据通道**    | `Channel<T>` 解耦串口读/写 + `ArrayPool` 缓冲复用实现粘包处理（按零中间分配设计，分配表现未实测）；LTTB 降采样实测每次调用 7.87 KB，见[性能基准](#工程证据) |
+| **百万级趋势渲染**      | LTTB（Largest Triangle Three Buckets）降采样算法，100 万点压缩至 1000 点（单次实测 13.8 ms，见[性能基准](#工程证据)），首尾保留 + 三角形面积筛选 |
 | **边缘触发报警**        | ISA-18.2 状态机（UNACK → ACK → RTN_UNACK → NORMAL），恢复迟滞防抖机制                                                |
-| **SQLite WAL 双缓冲**   | Channel 批量入队（50 条 / 1s 窗口）→ 异步事务刷盘，读写分离零锁冲突                                                  |
+| **SQLite WAL 双缓冲**   | Channel 批量入队（50 条 / 1s 窗口）→ 异步事务刷盘，WAL+NORMAL 批量写实测约 19.6 万行/秒（见[性能基准](#工程证据)），读写分离零锁冲突 |
 | **Watchdog 双进程守护** | 命名管道心跳检测，主进程无响应时自动强制重启                                                                         |
 | **全链路异步**          | 从 `BaseStream.ReadAsync` → `Pipe.Writer.WriteAsync` → `ValueTask` 协议解析，零 sync-over-async                      |
 | **ESP8266 真实固件**    | 支持 WiFi 网页仪表盘 + Modbus RTU 串口双模通信，温湿度仿真引擎 + 板载 LED 控制                                       |
@@ -193,7 +196,7 @@ sequenceDiagram
 
 | 协议           | 数据格式              | 方向                        | 特点                                                   |
 | -------------- | --------------------- | --------------------------- | ------------------------------------------------------ |
-| **JSON-Lines** | 换行符分隔 JSON       | 设备 → 上位机（主动上报）   | `System.IO.Pipelines` 无锁流式解析，`ArrayPool` 零分配 |
+| **JSON-Lines** | 换行符分隔 JSON       | 设备 → 上位机（主动上报）   | `System.IO.Pipelines` 无锁流式解析，`ArrayPool` 缓冲复用 |
 | **Modbus RTU** | 03 读/06 写保持寄存器 | 双向（轮询应答 + 指令下发） | 半字节查表 CRC16，Pipe 滑动窗口粘包处理，1s 定时轮询   |
 
 ### 指令下发 (DeviceCommunicationCoordinator)
@@ -225,7 +228,7 @@ sequenceDiagram
 ### 边缘存储
 
 - SQLite WAL 模式 + 临时内存存储
-- **遥测双缓冲批量写入**：Channel 收集遥测数据，50 条或 1s 超时触发异步事务提交
+- **遥测双缓冲批量写入**：Channel 收集遥测数据，50 条或 1s 超时触发异步事务提交（`SqliteTelemetryRepository` 中 `BatchSize=50` / `FlushIntervalMs=1000`）
 - **报警直写**：每条报警实时 INSERT，确保不丢失
 - Dapper 类型处理器：`Temperature`/`Humidity`/`DataQuality` 自定义类型处理器自动映射 SQLite 列
 - 表结构自动迁移
@@ -325,7 +328,7 @@ SmartEdgeHMI/                    # 主应用：入口、DI 容器、全局配置
 └── SmartEdgeHMI.csproj          # .NET 8 WPF 项目文件
 
 SmartEdgeHMI.Watchdog/           # 独立 Watchdog 守护进程（命名管道、进程监控/重启）
-SmartEdgeHMI.Tests/              # 单元测试（39 个：状态机 13 + JSON 解析 10 + Modbus 解析 13 + CRC 表 3）
+SmartEdgeHMI.Tests/              # 单元测试（48 个：状态机 17 + JSON 解析 8 + Modbus 解析 11 + CRC 表 3 + 串口传输 1 + LTTB 降采样 5 + Task 工具 1 + SQLite 数据层 2）
 Firmware/                        # ESP8266 真实硬件固件 (PlatformIO)
 └── src/                         # 固件源码（WiFi 网页仪表盘 + Modbus RTU 从站）
 Simulator/                       # Node.js 虚拟设备模拟器（JSON / Modbus 双模）
@@ -363,7 +366,7 @@ dotnet run --project SmartEdgeHMI/SmartEdgeHMI.csproj
 
 ```bash
 dotnet test SmartEdgeHMI.Tests/SmartEdgeHMI.Tests.csproj
-# 期望：39 passed，0 failed
+# 期望：48 passed，0 failed（2026-11-17 Release 实测口径）
 ```
 
 ### 烧录固件 (可选)
@@ -393,10 +396,24 @@ pio run --target upload
 | 依赖注入   | Microsoft.Extensions.DependencyInjection（KeyedService）      |
 | 进程守护   | System.IO.Pipes（NamedPipeServerStream）                      |
 | 配置       | Microsoft.Extensions.Configuration（JSON + 强类型绑定）       |
-| 数据管道   | System.IO.Pipelines（零分配流式解析）                         |
-| 单元测试   | xUnit v3（39 tests，含状态机/协议/CRC 全覆盖）                |
+| 数据管道   | System.IO.Pipelines（流式解析 + 缓冲复用）                    |
+| 单元测试   | xUnit v3（48 tests，覆盖状态机/协议/CRC/串口传输/LTTB 降采样/SQLite 数据层）|
 | 硬件固件   | PlatformIO + ESP8266（Arduino框架）                           |
 | 设备模拟器 | Node.js + serialport + modbus-serial                          |
+
+---
+
+## 工程证据
+
+| 证据 | 状态与口径 | 链接 |
+| --- | --- | --- |
+| CI 门禁 | restore → build(Release) → test → format 四步（windows-latest）；workflow 已就绪，运行结果以徽章为准 | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| 单元测试 | 48 通过 / 0 失败（2026-11-17，`dotnet test -c Release` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
+| format 门禁 | `dotnet format --verify-no-changes` 退出码 0（2026-11-17 实测） | 同 CI 第 4 步 |
+| 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 19.6 万行/秒 | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
+| 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）：根因 / 修复 / 防复发约定 | [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) |
+| 真实硬件验收 | **未执行**：本机仅有 ELTIMA 虚拟串口对（COM1↔COM2），未检测到 ESP8266 / USB 串口芯片 | [docs/hardware-validation.md](docs/hardware-validation.md) |
+| 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表 | [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md) · [docs/release-checklist.md](docs/release-checklist.md) |
 
 ---
 

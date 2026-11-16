@@ -13,6 +13,17 @@ public sealed class SqliteConnectionFactory
 {
     private readonly string _connectionString;
 
+    /// <summary>
+    /// 连接级 PRAGMA: synchronous/temp_store 是连接级设置, 不随库文件持久化, 须在每次打开连接后声明;
+    /// journal_mode=WAL 随库文件持久化, 此处一并声明但迁移判断不依赖它。
+    /// </summary>
+    private const string ConnectionPragmas =
+        """
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA temp_store = MEMORY;
+        """;
+
     static SqliteConnectionFactory()
     {
         SqlMapper.AddTypeHandler(new DataQualityTypeHandler());
@@ -33,6 +44,7 @@ public sealed class SqliteConnectionFactory
     {
         var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync();
+        await ApplyConnectionPragmasAsync(connection);
         return connection;
     }
 
@@ -42,11 +54,7 @@ public sealed class SqliteConnectionFactory
         {
             await using var connection = await CreateConnectionAsync();
 
-            await connection.ExecuteAsync("""
-                PRAGMA journal_mode = WAL;
-                PRAGMA synchronous = NORMAL;
-                PRAGMA temp_store = MEMORY;
-            """);
+            await ApplyConnectionPragmasAsync(connection);
 
             await connection.ExecuteAsync("""
                 CREATE TABLE IF NOT EXISTS AlarmHistory (
@@ -89,6 +97,9 @@ public sealed class SqliteConnectionFactory
             throw new InvalidOperationException("系统初始化失败: 无法连接到核心数据库或执行迁移脚本, 请检查配置。", ex);
         }
     }
+
+    private static async Task ApplyConnectionPragmasAsync(SqliteConnection connection)
+        => await connection.ExecuteAsync(ConnectionPragmas);
 
     private static async Task MigrateSchemaAsync(SqliteConnection connection)
     {

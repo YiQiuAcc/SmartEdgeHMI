@@ -16,7 +16,7 @@ public sealed class SqliteTelemetryRepository : ITelemetryRepository, IAsyncDisp
     private bool _disposed;
 
     private const int BatchSize = 50;
-    private const int FlushIntervalMs = 10_000;
+    private const int FlushIntervalMs = 1_000;
 
     public SqliteTelemetryRepository(SqliteConnectionFactory factory)
     {

@@ -71,6 +71,8 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
         {
             Log.Error(ex, "[SerialPort] 打开串口 {Port} 失败", portName);
             serialPort.Dispose();
+            StateChanged?.Invoke(portName, ConnectionState.Error);
+            return;
         }
 
         Log.Information("[SerialPort] 已打开串口 {Port}, 波特率 {Baud}, DTR={Dtr}, RTS={Rts}",
