@@ -44,3 +44,7 @@ logs/
 Thumbs.db
 
 node_modules/
+
+## 本地协作与基准产物
+BenchmarkDotNet.Artifacts/
+.workbuddy/
