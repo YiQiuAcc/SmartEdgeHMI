@@ -77,6 +77,7 @@ public class SqliteInsertBenchmarks
         ExecuteNonQuery(connection, CreateSql);
         ExecuteNonQuery(connection, "CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON TelemetryHistory(Timestamp)");
         ExecuteNonQuery(connection, "CREATE INDEX IF NOT EXISTS idx_telemetry_device ON TelemetryHistory(DeviceId)");
+        ExecuteNonQuery(connection, "CREATE INDEX IF NOT EXISTS idx_telemetry_device_timestamp ON TelemetryHistory(DeviceId, Timestamp)");
     }
 
     [IterationSetup]

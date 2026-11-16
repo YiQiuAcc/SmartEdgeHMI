@@ -39,6 +39,56 @@ public class SqliteConnectionFactoryTests
         }
     }
 
+    [Fact]
+    public async Task InitializeDatabaseAsync_CreatesDeviceTimestampCompositeIndex()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["DatabaseSettings:DefaultConnection"] = $"Data Source={dbPath}"
+                })
+                .Build();
+
+            var factory = new SqliteConnectionFactory(config);
+            await factory.InitializeDatabaseAsync();
+
+            await using SqliteConnection connection = await factory.CreateConnectionAsync();
+
+            // 报警上下文窗口查询 (DeviceId = ? AND Timestamp BETWEEN) 依赖 (DeviceId, Timestamp) 复合索引
+            var indexNames = new List<string>();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='TelemetryHistory'";
+            await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            while (await reader.ReadAsync(TestContext.Current.CancellationToken))
+                indexNames.Add(reader.GetString(0));
+
+            Assert.Contains("idx_telemetry_device_timestamp", indexNames);
+
+            // 窗口查询计划应 SEARCH 复合索引且不再需要 ORDER BY 临时 B 树
+            await using var planCommand = connection.CreateCommand();
+            planCommand.CommandText = """
+                EXPLAIN QUERY PLAN
+                SELECT * FROM TelemetryHistory
+                WHERE DeviceId = 'SIM-A' AND Timestamp >= '2026-01-01' AND Timestamp <= '2026-01-02'
+                """;
+            var planDetails = new List<string>();
+            await using var planReader = await planCommand.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            while (await planReader.ReadAsync(TestContext.Current.CancellationToken))
+                planDetails.Add(planReader.GetString(3));
+
+            Assert.Contains(planDetails, detail => detail.Contains("USING INDEX idx_telemetry_device_timestamp"));
+            Assert.DoesNotContain(planDetails, detail => detail.Contains("TEMP B-TREE"));
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
     private static async Task<object?> ExecutePragmaAsync(SqliteConnection connection, string pragma)
     {
         await using var command = connection.CreateCommand();

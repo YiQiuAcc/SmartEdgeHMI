@@ -92,6 +92,9 @@ public sealed class SqliteConnectionFactory
             await connection.ExecuteAsync("""
                 CREATE INDEX IF NOT EXISTS idx_alarm_timestamp ON AlarmHistory(Timestamp)
             """);
+            await connection.ExecuteAsync("""
+                CREATE INDEX IF NOT EXISTS idx_telemetry_device_timestamp ON TelemetryHistory(DeviceId, Timestamp)
+            """);
 
             await MigrateSchemaAsync(connection);
         }
