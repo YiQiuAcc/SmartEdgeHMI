@@ -417,6 +417,7 @@ pio run --target upload
 | 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 14.8 万行/秒；查询下推后报警历史 118 µs、报警上下文 1.1 ms、趋势 20 万行分配 0.75 MB | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
 | 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）：根因 / 修复 / 防复发约定 | [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) |
 | 数据保留 | 遥测 30 天分批清理 / 报警默认不删 / 库文件不缩小的边界说明 | [docs/data-retention.md](docs/data-retention.md) |
+| 发布包 | `tools/package.ps1` 一键产出 self-contained zip（78.26 MB，290 个文件）+ SHA256；`sha256sum -c` 通过，重跑幂等 | [tools/package.ps1](tools/package.ps1) · [release-checklist.md](docs/release-checklist.md) |
 | 真实硬件验收 | **未执行**：本机仅有 ELTIMA 虚拟串口对（COM1↔COM2），未检测到 ESP8266 / USB 串口芯片 | [docs/hardware-validation.md](docs/hardware-validation.md) |
 | 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表 | [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md) · [docs/release-checklist.md](docs/release-checklist.md) |
 
