@@ -18,19 +18,23 @@ public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConf
         {
             await using var connection = await factory.CreateConnectionAsync();
 
-            var result = (await connection.QueryAsync<AlarmRecord>(
-                "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC")).AsList();
-
-            if (filter is not null)
+            // 过滤下推到 SQL, 避免全表载入内存; 参数化占位符保证 null 条件短路为"不过滤"
+            return [.. await connection.QueryAsync<AlarmRecord>("""
+                SELECT * FROM AlarmHistory
+                WHERE (@From IS NULL OR Timestamp >= @From)
+                    AND (@To IS NULL OR Timestamp <= @To)
+                    AND (@DeviceId IS NULL OR DeviceId = @DeviceId COLLATE NOCASE)
+                    AND (@AlarmCode IS NULL OR AlarmCode = @AlarmCode COLLATE NOCASE)
+                ORDER BY Timestamp DESC
+                LIMIT @Limit
+                """, new
             {
-                result = [.. result
-                    .Where(r => (!filter.From.HasValue || r.Timestamp >= filter.From.Value) &&
-                    (!filter.To.HasValue || r.Timestamp <= filter.To.Value) &&
-                    (filter.DeviceId is null || r.DeviceId.Equals(filter.DeviceId, StringComparison.OrdinalIgnoreCase)) &&
-                    (filter.AlarmCode is null || r.AlarmCode.Equals(filter.AlarmCode, StringComparison.OrdinalIgnoreCase)))];
-            }
-
-            return [.. result.Take(filter?.Limit ?? _queryLimit)];
+                From = filter?.From,
+                To = filter?.To,
+                DeviceId = filter?.DeviceId,
+                AlarmCode = filter?.AlarmCode,
+                Limit = filter?.Limit ?? _queryLimit
+            })];
         }
         catch (Exception ex)
         {
