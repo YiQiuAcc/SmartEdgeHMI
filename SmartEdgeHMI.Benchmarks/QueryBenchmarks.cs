@@ -92,6 +92,7 @@ public class QueryBenchmarks
         ExecuteNonQuery(connection, "CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON TelemetryHistory(Timestamp)");
         ExecuteNonQuery(connection, "CREATE INDEX IF NOT EXISTS idx_telemetry_device ON TelemetryHistory(DeviceId)");
         ExecuteNonQuery(connection, "CREATE INDEX IF NOT EXISTS idx_alarm_timestamp ON AlarmHistory(Timestamp)");
+        ExecuteNonQuery(connection, "CREATE INDEX IF NOT EXISTS idx_telemetry_device_timestamp ON TelemetryHistory(DeviceId, Timestamp)");
 
         SeedTelemetry(connection);
         SeedAlarms(connection);
