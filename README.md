@@ -73,7 +73,9 @@
 | **缓冲复用数据通道**    | `Channel<T>` 解耦串口读/写 + `ArrayPool` 缓冲复用实现粘包处理（按零中间分配设计，分配表现未实测）；LTTB 降采样实测每次调用 7.87 KB，见[性能基准](#工程证据) |
 | **百万级趋势渲染**      | LTTB（Largest Triangle Three Buckets）降采样算法，100 万点压缩至 1000 点（单次实测 13.8 ms，见[性能基准](#工程证据)），首尾保留 + 三角形面积筛选 |
 | **边缘触发报警**        | ISA-18.2 状态机（UNACK → ACK → RTN_UNACK → NORMAL），恢复迟滞防抖机制                                                |
-| **SQLite WAL 双缓冲**   | Channel 批量入队（50 条 / 1s 窗口）→ 异步事务刷盘，WAL+NORMAL 批量写实测约 19.6 万行/秒（见[性能基准](#工程证据)），读写分离零锁冲突 |
+| **SQLite WAL 双缓冲**   | Channel 批量入队（50 条 / 1s 窗口）→ 异步事务刷盘，WAL+NORMAL 批量写实测约 14.8 万行/秒（加查询复合索引后；加索引前约 19.6 万，见[性能基准](#工程证据)），读写分离零锁冲突 |
+| **查询全部下推到 SQL**  | 报警历史/报警上下文/趋势查询不再整表读入内存：报警历史 118 µs（旧实现 8.6 ms）、报警上下文 1.1 ms（旧实现 412 ms + 分配 86.7 MB）、趋势 20 万行分配从 80 MB 降到 0.75 MB（见[性能基准](#工程证据)） |
+| **数据保留策略**        | 遥测默认保留 30 天、5000 行/批分批删除、200 批安全上限；报警默认不删（审计），可配置，见[数据保留](docs/data-retention.md) |
 | **Watchdog 双进程守护** | 命名管道心跳检测，主进程无响应时自动强制重启                                                                         |
 | **全链路异步**          | 从 `BaseStream.ReadAsync` → `Pipe.Writer.WriteAsync` → `ValueTask` 协议解析，零 sync-over-async                      |
 | **ESP8266 真实固件**    | 支持 WiFi 网页仪表盘 + Modbus RTU 串口双模通信，温湿度仿真引擎 + 板载 LED 控制                                       |
@@ -232,6 +234,8 @@ sequenceDiagram
 - **报警直写**：每条报警实时 INSERT，确保不丢失
 - Dapper 类型处理器：`Temperature`/`Humidity`/`DataQuality` 自定义类型处理器自动映射 SQLite 列
 - 表结构自动迁移
+- **查询下推**：报警历史 `WHERE + LIMIT`、报警上下文按报警时间窗口逐条查询、趋势查询 SQL 分桶取每桶温度 min/max 两个真实采样点（保留尖峰），不再把整表读进内存；`(DeviceId, Timestamp)` 复合索引支撑窗口查询
+- **保留策略**：后台服务按 `RetentionDays`（默认 30 天）分批清理遥测，报警默认保留不删；库文件达到上界而非无限增长，细节见 [data-retention.md](docs/data-retention.md)
 - LTTB 降采样确保海量历史数据可视化性能
 
 ### 双进程 Watchdog
@@ -366,7 +370,7 @@ dotnet run --project SmartEdgeHMI/SmartEdgeHMI.csproj
 
 ```bash
 dotnet test SmartEdgeHMI.Tests/SmartEdgeHMI.Tests.csproj
-# 期望：48 passed，0 failed（2026-11-17 Release 实测口径）
+# 期望：87 passed，0 failed（2026-11-17 Release 实测口径）
 ```
 
 ### 烧录固件 (可选)
@@ -408,10 +412,11 @@ pio run --target upload
 | 证据 | 状态与口径 | 链接 |
 | --- | --- | --- |
 | CI 门禁 | restore → build(Release) → test → format 四步（windows-latest）；workflow 已就绪，运行结果以徽章为准 | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| 单元测试 | 48 通过 / 0 失败（2026-11-17，`dotnet test -c Release` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
+| 单元测试 | 87 通过 / 0 失败（2026-11-17，`dotnet test -c Release` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
 | format 门禁 | `dotnet format --verify-no-changes` 退出码 0（2026-11-17 实测） | 同 CI 第 4 步 |
-| 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 19.6 万行/秒 | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
+| 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 14.8 万行/秒；查询下推后报警历史 118 µs、报警上下文 1.1 ms、趋势 20 万行分配 0.75 MB | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
 | 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）：根因 / 修复 / 防复发约定 | [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) |
+| 数据保留 | 遥测 30 天分批清理 / 报警默认不删 / 库文件不缩小的边界说明 | [docs/data-retention.md](docs/data-retention.md) |
 | 真实硬件验收 | **未执行**：本机仅有 ELTIMA 虚拟串口对（COM1↔COM2），未检测到 ESP8266 / USB 串口芯片 | [docs/hardware-validation.md](docs/hardware-validation.md) |
 | 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表 | [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md) · [docs/release-checklist.md](docs/release-checklist.md) |
 

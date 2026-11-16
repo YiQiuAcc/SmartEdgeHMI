@@ -86,3 +86,18 @@
 - ~~全仓二次格式化 / 目录结构重排~~：现有分层已足以支撑架构叙事，再动只制造 review 噪音
 - ~~为凑覆盖率硬补 WPF UI 测试~~：性价比低，不如把已有协议层/状态机测试的叙事讲透
 - ~~重构承重架构~~：项目已可运行且有演示，不动地基
+
+### 阶段九：数据层与发布工程化 [已完成]
+
+> 2026-11-17 夜间批次。主题：把"能跑"的数据层改成"跑久了也不塌"的数据层，并把发布从手工命令变成可复现脚本。
+
+- [x] **报警历史查询下推**：`WHERE + ORDER BY + LIMIT` 替代全表载入，基准 8.6 ms → 118 µs（[performance-benchmarks.md §8](docs/performance-benchmarks.md)）
+- [x] **报警上下文查询重写**：按报警时间窗口逐条查询，替代"整张报警表 + 整张遥测表读进内存"，412 ms / 86.7 MB → 1.1 ms / 0.27 MB
+- [x] **趋势查询 SQL 分桶**：每桶取温度 min/max 两个真实采样点（保留尖峰），20 万行分配 80 MB → 0.75 MB；时间持平（如实说明，不宣称提速）
+- [x] **遥测复合索引 `(DeviceId, Timestamp)`**：窗口查询 591 ms → 1.1 ms，代价是写入侧 1.21×–1.33× 写放大（[§9](docs/performance-benchmarks.md)）
+- [x] **数据保留策略**：遥测默认 30 天、5000 行/批、200 批上限；报警默认不删（审计），可配置（[data-retention.md](docs/data-retention.md)）
+- [x] **一键打包**：`tools/package.ps1`（测试 → 双 exe 自包含发布 → zip → SHA256），替代手工命令（[release-checklist.md](docs/release-checklist.md)）
+- [x] **CI 增强**：trx + XPlat Code Coverage 产物上传、NuGet 漏洞扫描（informational）
+- [x] **启动配置校验**：9 个关键参数越界即 Fatal + 弹窗 + 退出，不带病运行
+- [x] **日志控制台批量裁剪**：稳态由"每条日志裁一次"降为"每 ~上限/10 条裁一次"
+- [x] 单元测试 48 → 87，全部通过；build 0 错误；format 退出码 0

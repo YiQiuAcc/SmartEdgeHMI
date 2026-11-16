@@ -81,3 +81,32 @@ v1.2 打 tag 前必须**全部**满足：
 
 1. 硬件到位即按 [hardware-validation.md](hardware-validation.md) 执行并归档证据（照片 / 串口日志 / 录屏），据此收口 v1.2；若短期无硬件，则将 v1.2 冻结为"工程可信度"口径发布，硬件验收顺延为独立标签（如 v1.2.1-hw）。
 2. 连接级 PRAGMA 已修复（TASK-005）：`SqliteConnectionFactory.CreateConnectionAsync` 对每个新连接设置 `synchronous=NORMAL`，应用写入口径与 [performance-benchmarks.md](performance-benchmarks.md) 基准一致；后续可在同等环境复测确认。
+
+## 8. v1.2 夜间补强批次（2026-11-17，已提交并推送）
+
+> 本文 §3 的"未提交"状态已被本批次覆盖：工作区全部提交，CI 首轮全绿（run 43915278633，8 步 success，2m10s）。
+> 本节只记录有实测数字的完成项，数字出处统一指向 [performance-benchmarks.md](performance-benchmarks.md)。
+
+| 编号 | 事项 | 结果与证据 |
+| --- | --- | --- |
+| V12-08 | 报警历史查询下推（`WHERE` + `LIMIT` + `AlarmHistory(Timestamp)` 索引） | 8 589 µs → 118 µs，分配 -98.7%；7 个仓储测试 |
+| V12-09 | 报警上下文查询重写（按报警窗口逐条查询） | 412 ms / 86.7 MB → 1.1 ms / 0.27 MB；7 个测试（设备隔离/窗口边界/防退化） |
+| V12-10 | 趋势查询 SQL 分桶（每桶温度 min/max 真实采样点） | 20 万行分配 80 MB → 0.75 MB；**时间持平**，不宣称提速；5 个测试 |
+| V12-11 | 遥测复合索引 `(DeviceId, Timestamp)` | 窗口查询 591 ms → 1.1 ms；写放大 1.21×–1.33×（[§9](performance-benchmarks.md)） |
+| V12-12 | 数据保留策略 | 30 天/5000 行一批/200 批上限，报警默认不删；8 个测试；[data-retention.md](data-retention.md) |
+| V12-13 | 一键打包脚本 | `tools/package.ps1` 产出 self-contained zip + SHA256，`sha256sum -c` 通过，三次重跑幂等 |
+| V12-14 | CI 增强 | 覆盖率采集 + artifact 上传 + 漏洞扫描（informational） |
+| V12-15 | 启动配置校验 + 日志批量裁剪 | 9 个参数范围校验；11 个测试 |
+
+### 仍未完成
+
+| 事项 | 状态 | 说明 |
+| --- | --- | --- |
+| 真实硬件验收（V12-03） | **仍未执行** | 本机仍只有 ELTIMA 虚拟串口对；模板见 [hardware-validation.md](hardware-validation.md) |
+| 发布流程走查（V12-04） | 脚本就绪，未逐项签字 | [release-checklist.md](release-checklist.md) 已改为脚本口径，干净机安装/回滚仍需人工执行 |
+
+### 测试与门禁（本批次结束时的实测口径）
+
+- `dotnet test -c Release`：**87 通过 / 0 失败**（约 6 秒）
+- `dotnet build -c Release`：0 错误，2 条既有 NU1701（SkiaSharp.Views.WPF）警告
+- `dotnet format --verify-no-changes`：退出码 0
