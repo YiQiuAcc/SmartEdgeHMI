@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
+using SmartEdgeHMI.Common;
 using SmartEdgeHMI.Core.Services;
 using SmartEdgeHMI.Data;
 using SmartEdgeHMI.Data.Repositories;
@@ -103,6 +104,25 @@ public partial class App : Application
 
         // 间接安全地初始化静态依赖
         SetStaticDependencies(config, services);
+
+        // 启动配置校验: 服务容器构建完成后、数据库初始化前拦截非法参数(如 0 波特率), 避免带病启动。
+        // Environment.Exit 不走 OnExit, 已获取的 Mutex 由 OS 在进程退出时释放。
+        var settingsErrors = AppSettingsValidator.Validate(
+            ServiceProvider.GetRequiredService<ISettingsService>().Current);
+        if (settingsErrors.Count > 0)
+        {
+            foreach (string error in settingsErrors)
+                Log.Fatal("设置校验失败: {Error}", error);
+
+            MessageBox.Show(
+                "以下启动配置参数非法:\n" + string.Join("\n", settingsErrors)
+                + "\n\n请检查 %LOCALAPPDATA%\\SmartEdgeHMI\\settings.json, 修正或删除该文件后重启。",
+                "配置错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            Environment.Exit(1);
+            return;
+        }
+
+        Log.Information("设置校验通过");
 
         ServiceProvider.GetRequiredService<SqliteConnectionFactory>()
             .InitializeDatabaseAsync()

@@ -32,8 +32,17 @@ public class LogConsoleViewModel : ViewModelBase,
         DispatchToUI(() =>
         {
             SystemLogs.Add(message.LogData);
-            if (SystemLogs.Count > _settingsService.Current.Logging.MaxLogEntries)
-                SystemLogs.RemoveAt(0);
+
+            int maxEntries = _settingsService.Current.Logging.MaxLogEntries;
+            if (SystemLogs.Count > maxEntries)
+            {
+                // 批量裁剪: 一次裁掉上限的 1/10(至少 1 条), 避免每来一条日志就令集合整体前移一次
+                for (int i = 0; i < TrimCount(maxEntries); i++)
+                    SystemLogs.RemoveAt(0);
+            }
         });
     }
+
+    /// <summary>批量裁剪条数: 超出上限时一次裁掉上限的 1/10, 至少 1 条 (例如上限 500 → 一次裁 50 条)</summary>
+    public static int TrimCount(int max) => Math.Max(1, max / 10);
 }
