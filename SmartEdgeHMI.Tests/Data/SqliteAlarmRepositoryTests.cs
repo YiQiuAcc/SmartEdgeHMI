@@ -1,9 +1,13 @@
+using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
+using SmartEdgeHMI.Common;
+using SmartEdgeHMI.Core.Domain.ValueObjects;
 using SmartEdgeHMI.Data;
 using SmartEdgeHMI.Data.Entities;
 using SmartEdgeHMI.Data.Filters;
 using SmartEdgeHMI.Data.Repositories;
+using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.Tests.Data;
 
@@ -200,8 +204,241 @@ public class SqliteAlarmRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task GetAlarmsWithTelemetryContextAsync_OverlappingWindows_ReturnsOnlyOwnDeviceRows()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var (repo, factory) = await CreateFixtureAsync(dbPath);
+
+            // 两台设备报警相距 7 分钟, 默认 5 分钟窗口彼此重叠 3 分钟: 串台缺陷在此区域必然暴露
+            var alarmA = new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh };
+            var alarmB = new AlarmRecord { DeviceId = DeviceB, Timestamp = _baseTime.AddMinutes(7), AlarmCode = AlarmLow };
+            await SeedAsync(repo, [alarmA, alarmB]);
+
+            // 11:57-12:10 每 30 秒一行, 两台设备交替写入: 两边的窗口内都混有对方的行
+            List<SensorReadingRecord> telemetry = [];
+            for (int i = 0; i <= 26; i++)
+            {
+                telemetry.Add(BuildTelemetry(i % 2 == 0 ? DeviceA : DeviceB, _baseTime.AddMinutes(-3).AddSeconds(i * 30)));
+            }
+            await SeedTelemetryAsync(factory, telemetry);
+
+            var result = await repo.GetAlarmsWithTelemetryContextAsync();
+
+            Assert.Equal(2, result.Count);
+
+            var contextA = Assert.Single(result, c => c.Alarm.DeviceId == DeviceA);
+            AssertContextMatches(contextA, telemetry, DeviceA,
+                _baseTime.AddMinutes(-5), _baseTime.AddMinutes(5));
+
+            var contextB = Assert.Single(result, c => c.Alarm.DeviceId == DeviceB);
+            AssertContextMatches(contextB, telemetry, DeviceB,
+                _baseTime.AddMinutes(2), _baseTime.AddMinutes(12));
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetAlarmsWithTelemetryContextAsync_WindowBoundaries_InclusiveWithinOneSecondExcluded()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var (repo, factory) = await CreateFixtureAsync(dbPath);
+            await SeedAsync(repo, [new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh }]);
+
+            DateTime tsMinusWindow = _baseTime.AddMinutes(-5);
+            DateTime tsPlusWindow = _baseTime.AddMinutes(5);
+            await SeedTelemetryAsync(factory,
+            [
+                BuildTelemetry(DeviceA, tsMinusWindow.AddSeconds(-1)),  // 窗口外 1 秒, 必须排除
+                BuildTelemetry(DeviceA, tsMinusWindow),                 // 恰好下边界, 必须包含
+                BuildTelemetry(DeviceA, _baseTime),                     // 报警时刻本身
+                BuildTelemetry(DeviceA, tsPlusWindow),                  // 恰好上边界, 必须包含
+                BuildTelemetry(DeviceA, tsPlusWindow.AddSeconds(1))     // 窗口外 1 秒, 必须排除
+            ]);
+
+            var result = await repo.GetAlarmsWithTelemetryContextAsync();
+
+            var context = Assert.Single(result);
+            Assert.Equal(
+                new[] { tsMinusWindow, _baseTime, tsPlusWindow },
+                context.SurroundingTelemetry.Select(r => r.Timestamp));
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetAlarmsWithTelemetryContextAsync_CustomWindow_TenMinutesTakeEffect()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var (repo, factory) = await CreateFixtureAsync(dbPath);
+            await SeedAsync(repo, [new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh }]);
+
+            // 6 分钟行会被默认 5 分钟窗口排除, 出现在结果里即证明 10 分钟自定义窗口生效
+            await SeedTelemetryAsync(factory,
+            [
+                BuildTelemetry(DeviceA, _baseTime.AddMinutes(-10)),     // 恰好下边界, 包含
+                BuildTelemetry(DeviceA, _baseTime.AddMinutes(-6)),      // 默认窗口外/自定义窗口内
+                BuildTelemetry(DeviceA, _baseTime),
+                BuildTelemetry(DeviceA, _baseTime.AddMinutes(10)),      // 恰好上边界, 包含
+                BuildTelemetry(DeviceA, _baseTime.AddMinutes(11))       // 自定义窗口外, 排除
+            ]);
+
+            var result = await repo.GetAlarmsWithTelemetryContextAsync(
+                telemetryWindow: TimeSpan.FromMinutes(10));
+
+            var context = Assert.Single(result);
+            Assert.Equal(
+                new[]
+                {
+                    _baseTime.AddMinutes(-10),
+                    _baseTime.AddMinutes(-6),
+                    _baseTime,
+                    _baseTime.AddMinutes(10)
+                },
+                context.SurroundingTelemetry.Select(r => r.Timestamp));
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetAlarmsWithTelemetryContextAsync_FilterLimit_ReturnsNewestFive()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+            var seed = BuildSeedRecords();
+            await SeedAsync(repo, seed);
+
+            var filter = new AlarmHistoryFilter { Limit = 5 };
+
+            var result = await repo.GetAlarmsWithTelemetryContextAsync(filter);
+
+            Assert.Equal(5, result.Count);
+            Assert.Equal(ExpectedTimestamps(seed, _ => true, 5), result.Select(c => c.Alarm.Timestamp));
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetAlarmsWithTelemetryContextAsync_DeviceAndCodeFilter_MatchesCaseInsensitive()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+            var seed = BuildSeedRecords();
+            await SeedAsync(repo, seed);
+
+            // 库内存的是 Dev-A / ALM_LOW, 用小写查询验证过滤已下推且不区分大小写
+            var filter = new AlarmHistoryFilter { DeviceId = "dev-a", AlarmCode = "alm_low" };
+
+            var result = await repo.GetAlarmsWithTelemetryContextAsync(filter);
+
+            var expected = ExpectedTimestamps(seed,
+                r => r.DeviceId == DeviceA && r.AlarmCode == AlarmLow, 10);
+            Assert.Equal(expected, result.Select(c => c.Alarm.Timestamp));
+            Assert.All(result, c =>
+            {
+                Assert.Equal(DeviceA, c.Alarm.DeviceId);
+                Assert.Equal(AlarmLow, c.Alarm.AlarmCode);
+            });
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetAlarmsWithTelemetryContextAsync_AlarmWithoutTelemetry_ReturnsEmptyListNotThrow()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+            await SeedAsync(repo, [new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh }]);
+
+            var result = await repo.GetAlarmsWithTelemetryContextAsync();
+
+            var context = Assert.Single(result);
+            Assert.NotNull(context.SurroundingTelemetry);
+            Assert.Empty(context.SurroundingTelemetry);
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetAlarmsWithTelemetryContextAsync_MassiveOutOfWindowTelemetry_ReturnsOnlyInWindowRows()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var (repo, factory) = await CreateFixtureAsync(dbPath);
+            await SeedAsync(repo, [new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh }]);
+
+            // 窗口内 5 行 + 10 天前起逐秒 2000 行窗口外数据: 退化成全表载入的实现会拉回全部 2005 行
+            List<SensorReadingRecord> telemetry =
+            [
+                BuildTelemetry(DeviceA, _baseTime.AddMinutes(-2)),
+                BuildTelemetry(DeviceA, _baseTime.AddMinutes(-1)),
+                BuildTelemetry(DeviceA, _baseTime),
+                BuildTelemetry(DeviceA, _baseTime.AddMinutes(1)),
+                BuildTelemetry(DeviceA, _baseTime.AddMinutes(2))
+            ];
+            for (int i = 0; i < 2000; i++)
+                telemetry.Add(BuildTelemetry(DeviceA, _baseTime.AddDays(-10).AddSeconds(i)));
+
+            await SeedTelemetryAsync(factory, telemetry);
+
+            var result = await repo.GetAlarmsWithTelemetryContextAsync();
+
+            var context = Assert.Single(result);
+            Assert.Equal(5, context.SurroundingTelemetry.Count);
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
     /// <summary>按临时文件库构造仓储: in-memory 配置 + 建库, QueryLimit 显式设为 10。</summary>
     private static async Task<SqliteAlarmRepository> CreateRepositoryAsync(string dbPath)
+    {
+        var (repo, _) = await CreateFixtureAsync(dbPath);
+        return repo;
+    }
+
+    /// <summary>构造仓储并返回工厂: 工厂供测试直接开连接批量写入遥测种子数据。</summary>
+    private static async Task<(SqliteAlarmRepository Repo, SqliteConnectionFactory Factory)> CreateFixtureAsync(string dbPath)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -214,7 +451,7 @@ public class SqliteAlarmRepositoryTests
         var factory = new SqliteConnectionFactory(config);
         await factory.InitializeDatabaseAsync();
 
-        return new SqliteAlarmRepository(factory, config);
+        return (new SqliteAlarmRepository(factory, config), factory);
     }
 
     /// <summary>构造 30 条种子数据: 时间戳从固定基准时间起分散在 3 天内, 2 个设备 × 2 个报警编码。</summary>
@@ -240,6 +477,48 @@ public class SqliteAlarmRepositoryTests
     {
         foreach (var record in records)
             await repo.SaveAlarmRecordAsync(record);
+    }
+
+    /// <summary>构造遥测行: 值字段仅作占位, 测试只关心设备与时间戳。</summary>
+    private static SensorReadingRecord BuildTelemetry(string deviceId, DateTime timestamp) => new()
+    {
+        DeviceId = deviceId,
+        Timestamp = timestamp,
+        Temperature = Temperature.FromCelsius(25),
+        Humidity = Humidity.FromPercent(60),
+        StatusCode = DeviceStatus.Online,
+        ErrorCode = ErrorCode.NoError,
+        QualityCode = DataQuality.Good
+    };
+
+    /// <summary>绕过 SqliteTelemetryRepository 的 Channel 异步刷盘, 直接批量插入保证测试确定性。</summary>
+    private static async Task SeedTelemetryAsync(SqliteConnectionFactory factory, IReadOnlyList<SensorReadingRecord> readings)
+    {
+        await using var connection = await factory.CreateConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        await connection.ExecuteAsync("""
+            INSERT INTO TelemetryHistory (DeviceId, Timestamp, Temperature, Humidity, StatusCode, ErrorCode, QualityCode)
+            VALUES (@DeviceId, @Timestamp, @Temperature, @Humidity, @StatusCode, @ErrorCode, @QualityCode)
+            """, readings, transaction: transaction);
+
+        await transaction.CommitAsync();
+    }
+
+    /// <summary>断言上下文遥测: 只含本设备、全部落在 [start, end] 内、行数与内容同种子数据推算结果一致且升序。</summary>
+    private static void AssertContextMatches(
+        AlarmWithTelemetry actual, List<SensorReadingRecord> telemetry, string deviceId,
+        DateTime start, DateTime end)
+    {
+        Assert.NotNull(actual.SurroundingTelemetry);
+        Assert.All(actual.SurroundingTelemetry, r => Assert.Equal(deviceId, r.DeviceId));
+        Assert.All(actual.SurroundingTelemetry, r => Assert.InRange(r.Timestamp, start, end));
+
+        Assert.Equal(
+            telemetry.Where(r => r.DeviceId == deviceId && r.Timestamp >= start && r.Timestamp <= end)
+                .OrderBy(r => r.Timestamp)
+                .Select(r => r.Timestamp),
+            actual.SurroundingTelemetry.Select(r => r.Timestamp));
     }
 
     /// <summary>计算种子数据中满足条件的记录按时间倒序、截断 limit 后应返回的时间戳序列。</summary>

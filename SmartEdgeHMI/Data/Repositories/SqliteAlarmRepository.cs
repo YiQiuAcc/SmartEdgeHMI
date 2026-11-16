@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using SmartEdgeHMI.Data.Entities;
@@ -18,23 +19,7 @@ public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConf
         {
             await using var connection = await factory.CreateConnectionAsync();
 
-            // 过滤下推到 SQL, 避免全表载入内存; 参数化占位符保证 null 条件短路为"不过滤"
-            return [.. await connection.QueryAsync<AlarmRecord>("""
-                SELECT * FROM AlarmHistory
-                WHERE (@From IS NULL OR Timestamp >= @From)
-                    AND (@To IS NULL OR Timestamp <= @To)
-                    AND (@DeviceId IS NULL OR DeviceId = @DeviceId COLLATE NOCASE)
-                    AND (@AlarmCode IS NULL OR AlarmCode = @AlarmCode COLLATE NOCASE)
-                ORDER BY Timestamp DESC
-                LIMIT @Limit
-                """, new
-            {
-                From = filter?.From,
-                To = filter?.To,
-                DeviceId = filter?.DeviceId,
-                AlarmCode = filter?.AlarmCode,
-                Limit = filter?.Limit ?? _queryLimit
-            })];
+            return await QueryAlarmsAsync(connection, filter, _queryLimit);
         }
         catch (Exception ex)
         {
@@ -92,40 +77,62 @@ public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConf
         {
             await using var connection = await factory.CreateConnectionAsync();
 
-            var alarms = (await connection.QueryAsync<AlarmRecord>(
-                "SELECT * FROM AlarmHistory ORDER BY Timestamp DESC")).AsList();
+            // 两段式查询: 先按过滤条件取报警列表(与 GetAlarmHistoryAsync 共用 SQL), 再逐条按时间窗口查遥测,
+            // 避免将报警表和遥测表整表载入内存
+            List<AlarmRecord> alarms = await QueryAlarmsAsync(connection, filter, _queryLimit);
 
-            var telemetry = (await connection.QueryAsync<SensorReadingRecord>(
-                "SELECT * FROM TelemetryHistory ORDER BY Timestamp ASC")).AsList();
+            var results = new List<AlarmWithTelemetry>(alarms.Count);
 
-            if (filter is not null)
+            foreach (AlarmRecord alarm in alarms)
             {
-                alarms = [.. alarms
-                    .Where(r => (!filter.From.HasValue || r.Timestamp >= filter.From.Value) &&
-                    (!filter.To.HasValue || r.Timestamp <= filter.To.Value) &&
-                    (filter.DeviceId is null || r.DeviceId.Equals(filter.DeviceId, StringComparison.OrdinalIgnoreCase)) &&
-                    (filter.AlarmCode is null || r.AlarmCode.Equals(filter.AlarmCode, StringComparison.OrdinalIgnoreCase)))];
+                var telemetry = (await connection.QueryAsync<SensorReadingRecord>("""
+                    SELECT * FROM TelemetryHistory
+                    WHERE DeviceId = @DeviceId
+                        AND Timestamp >= @Start AND Timestamp <= @End
+                    ORDER BY Timestamp ASC
+                    """, new
+                {
+                    alarm.DeviceId,
+                    Start = alarm.Timestamp - window,
+                    End = alarm.Timestamp + window
+                })).AsList();
+
+                results.Add(new AlarmWithTelemetry
+                {
+                    Alarm = alarm,
+                    SurroundingTelemetry = telemetry
+                });
             }
 
-            int limit = filter?.Limit ?? _queryLimit;
-            var limitedAlarms = alarms.Take(limit).ToList();
-
-            return [.. limitedAlarms
-                .GroupJoin(telemetry, a => a.DeviceId, t => t.DeviceId,
-                    (alarm, readings) => new { alarm, readings })
-                .Select(x => new AlarmWithTelemetry
-                {
-                    Alarm = x.alarm,
-                    SurroundingTelemetry = [.. x.readings
-                        .Where(r => r.Timestamp >= x.alarm.Timestamp - window
-                                 && r.Timestamp <= x.alarm.Timestamp + window)
-                        .OrderBy(r => r.Timestamp)]
-                })];
+            return results;
         }
         catch (Exception ex)
         {
             Log.Error(ex, "读取报警上下文失败");
             return [];
         }
+    }
+
+    /// <summary>报警列表共用查询: 过滤条件与 Limit 下推到 SQL, 供历史查询与上下文查询复用, 避免两处 SQL 漂移。</summary>
+    private static async Task<List<AlarmRecord>> QueryAlarmsAsync(
+        SqliteConnection connection, AlarmHistoryFilter? filter, int queryLimit)
+    {
+        // 参数化占位符保证 null 条件短路为"不过滤"
+        return [.. await connection.QueryAsync<AlarmRecord>("""
+            SELECT * FROM AlarmHistory
+            WHERE (@From IS NULL OR Timestamp >= @From)
+                AND (@To IS NULL OR Timestamp <= @To)
+                AND (@DeviceId IS NULL OR DeviceId = @DeviceId COLLATE NOCASE)
+                AND (@AlarmCode IS NULL OR AlarmCode = @AlarmCode COLLATE NOCASE)
+            ORDER BY Timestamp DESC
+            LIMIT @Limit
+            """, new
+        {
+            From = filter?.From,
+            To = filter?.To,
+            DeviceId = filter?.DeviceId,
+            AlarmCode = filter?.AlarmCode,
+            Limit = filter?.Limit ?? queryLimit
+        })];
     }
 }
