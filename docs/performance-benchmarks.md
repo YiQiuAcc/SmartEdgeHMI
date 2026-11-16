@@ -117,6 +117,8 @@
 - **`synchronous=FULL` 下的写入吞吐**：见 §6 第 4 条——已由 TASK-005 修复：连接工厂对每个新连接设置 `synchronous=NORMAL`，修复后应用口径与本基准一致；当前代码已是 NORMAL。修复前应用新连接运行在默认 FULL 模式，该模式吞吐未测（保留作为历史口径）。
 - **协议解析吞吐**（JSON-Lines / Modbus RTU）、**报警直写路径**、**Watchdog 心跳延迟**均未测。
 - **.NET 8 运行时数字**：本次实际运行在 .NET 11.0.0（见 §2 注 1），与项目目标运行时不同。
+- **查询基准的规模上界**：§8 的对照数据为 20 万行遥测、5000 行报警。30 天满负荷（1 Hz，约 260 万行）下三种查询的耗时未实测；已知趋势查询耗时随行数线性增长、内存保持 KB 级，报警上下文受"报警条数 × 窗口行数"约束。
+- **数据保留策略的长期收敛**：TASK-104 的清理逻辑只做了单轮单元测试（含 1.2 万行分批），"连续运行 24 小时后库文件是否稳定"未实测。
 
 ## 6. 与 README 现有表述的差异（建议收敛点）
 
@@ -124,7 +126,7 @@
 2. **"零分配数据通道 / 零分配协议解析"**：README 的"零分配"指协议缓冲复用（`ArrayPool`），本次未测；LTTB 降采样实测每次调用分配 7.87 KB（输出列表），**不是零分配**。建议把"零分配"的适用范围明确限定为协议缓冲复用。
 3. **"SQLite WAL 双缓冲……50 条 / 1s 窗口"**：TASK-003 撰写本文时代码实际是 `BatchSize = 50`、`FlushIntervalMs = 10_000`（10 秒，见 `SqliteTelemetryRepository.cs` 第 18–19 行），README 当时的 "1s 窗口" 与代码不符。已由 TASK-005 将 `FlushIntervalMs` 修正为 `1_000`，代码与 README/ROADMAP 声明的 "50 条或 1 秒窗口" 一致。
 4. **连接级 PRAGMA 偏差（已由 TASK-005 修复）**：`PRAGMA synchronous` 是连接级设置。修复前应用只在 `SqliteConnectionFactory.InitializeDatabaseAsync` 中设置过一次 `NORMAL`，仓储后续经 `CreateConnectionAsync` 新建的连接实际以 SQLite 默认的 `synchronous=FULL` 运行。已由 TASK-005 修复：连接工厂对每个新连接设置 `synchronous=NORMAL`，修复后应用口径与本基准一致；修复前 FULL 模式吞吐未测（历史口径），当前代码已是 NORMAL。`journal_mode=WAL` 随库文件持久化、不受影响。本基准在每次连接打开后重设 `NORMAL`，实测吞吐代表 WAL+NORMAL 口径。
-5. **"tests-39 passed" 徽章**：当前工作区实际为 46 个测试通过（含 Transport / LttbDownsampler 等新增测试），徽章数字已过期。
+5. **"tests-39 passed" 徽章**（历史口径）：TASK-004 已删除伪造徽章、改为真实 CI workflow badge；当前测试数量以最近一次 `dotnet test` 实测为准，见 README「工程证据」小节。
 
 ## 7. 复现命令与产物路径
 
@@ -135,6 +137,9 @@ dotnet run -c Release --project SmartEdgeHMI.Benchmarks -- --job short --filter 
 # 仅 SQLite 组（提高迭代次数的复测口径）
 dotnet run -c Release --project SmartEdgeHMI.Benchmarks -- --filter "*SqliteInsertBenchmarks*" --iterationCount 15 --warmupCount 3
 
+# 查询下推三组对照（§8，约 8~10 分钟）
+dotnet run -c Release --project SmartEdgeHMI.Benchmarks -- --filter "*QueryBenchmarks*"
+
 # LTTB 返回条数校验（三种规模均应精确返回 1000 条）
 dotnet run -c Release --project SmartEdgeHMI.Benchmarks -- --verify
 
@@ -144,12 +149,75 @@ dotnet test SmartEdgeHMI.sln -c Release --no-build
 dotnet format SmartEdgeHMI.sln --verify-no-changes --no-restore
 ```
 
+## 8. 查询下推基准（TASK-103 / TASK-107 实测）
+
+### 8.1 背景
+
+改动前三个查询接口都是"把表读进内存再处理"：报警历史全表 `SELECT *` + LINQ 过滤；报警上下文把**整张报警表和整张遥测表**读进内存后 `GroupJoin`；趋势查询把时间范围内**全部原始行**读进内存再跑 LTTB。遥测按 1 Hz 采样，30 天约 260 万行，长期运行后这三次调用会直接导致内存与 GC 压力。
+
+TASK-101/102/103 把三者改为 SQL 过滤、按报警窗口逐条查询、SQL 分桶取样；TASK-107 补 `(DeviceId, Timestamp)` 复合索引修掉窗口查询的扫描放大。
+
+### 8.2 基准设计（`SmartEdgeHMI.Benchmarks/QueryBenchmarks.cs`）
+
+| 项 | 值 |
+| --- | --- |
+| 数据规模 | `TelemetryHistory` 20 万行（最近 30 天均匀分布，2 设备交替）+ `AlarmHistory` 5000 行（2 设备 × 2 编码） |
+| 对照方式 | 每组一个 `Legacy_*`（内联改前实现，仅作基线）+ 一个 `New_*`（调用当前仓储方法） |
+| 参数 | 报警历史：最近 1 天 / Limit=50；报警上下文：Limit=20 / 窗口 5 分钟；趋势：30 天 / targetPoints=1000 |
+| BDN 配置 | `[MemoryDiagnoser]` + `[SimpleJob(warmupCount:1, iterationCount:3)]`，`Job-WWFMMQ` |
+| 运行环境 | i7-12650H（10C/16T）、16 GB、Windows 11 23H2、BDN 0.16.0-preview.2；托管运行时 .NET 11.0.0（见 §2 注 1） |
+
+```bash
+dotnet run -c Release --project SmartEdgeHMI.Benchmarks -- --filter "*QueryBenchmarks*"
+```
+
+### 8.3 结果（TASK-107 复测，含复合索引）
+
+| 组 | 方法 | Mean | Allocated | 相对旧实现 |
+| --- | --- | ---: | ---: | --- |
+| 报警历史 | `Legacy_AlarmHistory` | 8,589.0 us | 1,930.39 KB | 基线 |
+| | `New_AlarmHistory` | **118.3 us** | **25.89 KB** | **约 73× 快，分配 -98.7%** |
+| 报警上下文 | `Legacy_AlarmContext` | 411,851.8 us | 86,713.07 KB | 基线 |
+| | `New_AlarmContext` | **1,111.7 us** | **270.22 KB** | **约 370× 快，分配 -99.7%** |
+| 趋势 | `Legacy_Trend` | 382,656.6 us | 80,672.52 KB | 基线 |
+| | `New_Trend` | 443,711.9 us | **765.13 KB** | **时间持平（CI ±190 ms，差异在噪声内），分配 -99.1%** |
+
+GC 侧：两个 Legacy 大组每 1000 次操作触发 6000/2000/1000 次 Gen0/Gen1/Gen2；`New_*` 三组均为 0。
+
+**趋势查询没有可测的时间提升**，这点必须如实说明：它的剩余耗时由 SQLite 对 20 万行做 `julianday` 解析与分桶排序决定，与旧实现同量级；改造收益在内存（80 MB → 0.75 MB）与"数据量再涨十倍也不会一次性对象化全部行"。README 中不得写成"趋势查询提速 N 倍"。
+
+### 8.4 报警上下文：1.48× 变慢 → 370× 变快的修正过程
+
+TASK-103 首次基准暴露出新实现反而慢 1.48×：`EXPLAIN QUERY PLAN` 显示窗口查询走的是单列 `idx_telemetry_device`，库里只有 2 台设备，每条查询最多扫约 10 万行，还要为 `ORDER BY Timestamp` 建临时 B 树。TASK-107 追加复合索引 `idx_telemetry_device_timestamp (DeviceId, Timestamp)` 后，计划变为复合索引直接 `SEARCH`、无临时 B 树，单次调用从 591 ms 降到 1.1 ms。
+
+这条记录保留下来，是因为它说明了一个方法论：**查询下推的收益依赖于索引是否匹配查询形态，不做前后基准就无法发现"优化变慢"**。
+
+## 9. 复合索引的写放大（TASK-107 实测）
+
+新增 `idx_telemetry_device_timestamp` 后 `TelemetryHistory` 有 4 个索引（PK + timestamp + device + 复合），写入需要多维护一棵 B 树：
+
+| BatchSize | 加索引前（§4.2 short job） | 加索引后（15 次迭代） | 变化 | 换算吞吐（加索引后） |
+| ---: | ---: | ---: | --- | ---: |
+| 1 | 554.97 ms | 673.92 ms | +21.4% | ≈ 14,838 行/秒 |
+| 50 | 51.06 ms | 67.58 ms | +32.4% | ≈ **147,973 行/秒** |
+| 500 | 30.30 ms | 37.67 ms | +24.3% | ≈ 265,462 行/秒 |
+
+托管分配三档均与加索引前完全一致（31.36 / 9.45 / 9.05 MB），写放大纯粹是 SQLite 端维护索引的成本。
+
+结论：按应用当前 50 条/批的批量参数，写入吞吐仍有约 14.8 万行/秒，相对单设备 1 Hz 遥测（86,400 行/天）余量四个数量级以上；代价可接受。若未来出现高频写入场景，应重新评估该索引是否值得。
+
+```bash
+dotnet run -c Release --project SmartEdgeHMI.Benchmarks -- --filter "*SqliteInsertBenchmarks*"
+```
+
 产物（`BenchmarkDotNet.Artifacts/` 已被 `.gitignore` 忽略，本地留存；关键表格已复制进本文）：
 
 | 产物 | 路径 |
 | --- | --- |
 | LTTB 结果表 / CSV / HTML | `BenchmarkDotNet.Artifacts/results/SmartEdgeHMI.Benchmarks.LttbDownsampleBenchmarks-report-github.md`（同目录 `-report.csv` / `-report.html`） |
 | SQLite 结果表 / CSV / HTML | `BenchmarkDotNet.Artifacts/results/SmartEdgeHMI.Benchmarks.SqliteInsertBenchmarks-report-github.md`（同目录 `-report.csv` / `-report.html`） |
+| 查询下推结果表（§8） | `BenchmarkDotNet.Artifacts/results/SmartEdgeHMI.Benchmarks.QueryBenchmarks-report-github.md` |
+| 查询/插入基准完整日志（TASK-107） | `BenchmarkDotNet.Artifacts/bench-TASK107.log` |
 | 全量运行完整控制台日志 | `BenchmarkDotNet.Artifacts/benchmark-run-short-final.log` |
 | SQLite 15 次迭代复测日志 | `BenchmarkDotNet.Artifacts/benchmark-run-sqlite-i15.log` |
 
