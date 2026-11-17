@@ -110,3 +110,40 @@ v1.2 打 tag 前必须**全部**满足：
 - `dotnet test -c Release`：**87 通过 / 0 失败**（约 6 秒）
 - `dotnet build -c Release`：0 错误，2 条既有 NU1701（SkiaSharp.Views.WPF）警告
 - `dotnet format --verify-no-changes`：退出码 0
+
+## 9. v1.2.0 发布走查（2026-11-17，本机）
+
+> 门禁口径：`dotnet build -c Release` 0 错误（2 条既有 NU1701 警告）、`dotnet test -c Release` 87 通过 / 0 失败、format 退出码 0、CI run `43938597156`（`ae10336`）8 步 success；走查时间 2026-11-17 23:19–23:56（Windows 11 · i7-12650H，ELTIMA 虚拟串口对 COM1↔COM2）。
+
+### 9.1 已闭环
+
+| 项 | 结果与证据 |
+| --- | --- |
+| 启动冒烟 | 坏配置（BaudRate=0 / PollingIntervalMs=5 / MaxLogEntries=10）启动弹窗「配置错误」，逐条列出 3 个非法参数并指向 `%LOCALAPPDATA%\SmartEdgeHMI\settings.json`，退出码 1，日志 3 条 `[FTL] 设置校验失败`；正常启动主窗口 1s 内出现，日志「设置校验通过」「数据保留策略已启动」「Watchdog 心跳发送已启动」，正常关闭退出码 0、无 `[FTL]` |
+| 双开 | 第二实例弹「系统提示 / SmartEdgeHMI 系统已在运行中, 请勿重复启动！」→ 退出码 0，首实例存活 |
+| Watchdog | Watchdog 自行拉起主程序，18 秒内 9 次心跳无误差；强杀后 **1.8 s** 重启新 PID、心跳恢复，日志「HMI 主进程已退出 (ExitCode: -1), 正在重启」 |
+| 迁移 | `v1.1.0` tag 不可编译（CS0103），旧库由 `3cb8a00` 生成（同 schema）；新版本打开自动补建 `idx_alarm_timestamp`、`idx_telemetry_device_timestamp`，1800 遥测 / 180 报警迁移前后完全一致，`PRAGMA journal_mode` 保持 wal |
+| 保留清理（端到端，非单测） | 45 天种子数据 + 30 天保留：日志「数据保留清理完成: 遥测删除 600 行(保留 30 天), 报警删除 0 行(保留 0 天), 批数上限截断: false」，遥测 1800 → **1200**（15 天 × 40 行）、报警保持 180 未动（策略说明见 [data-retention.md](data-retention.md)） |
+| 包内容 | 含 `SmartEdgeHMI.exe`、`SmartEdgeHMI.Watchdog.exe`、`appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h` |
+| 校验和 | `dist/SmartEdgeHMI-1.2.0-win-x64.zip` 82,065,173 字节 / 78.26 MB（290 个根文件 / 511 个条目），SHA256 `99e8a5e937bcb2403294cf01c07c46d5c6ecdbe11ee7b1550e34dc48d61034a1`，`sha256sum -c` 等价校验通过 |
+| LTTB 复现命令 | `dotnet run -c Release --project SmartEdgeHMI.Benchmarks -- --verify` → 10000 / 100000 / 1000000 三点均精确返回 1000 条、首尾保留，PASSED（基准时效：`8dfcb40` 之后 `SmartEdgeHMI/Data` 仅 `c4579d0` 新增保留服务，未触及 LTTB 与写入热路径，无需重跑基准） |
+| 模拟器 E2E（数据链路） | JSON 模式 COM1↔COM2 虚拟串口对：遥测约 1 行/秒入库（1200 → 1245 行），当前值实时刷新 24.4~25.3 °C；「设备紧急复位」下发后模拟器收到 `{"action":3}` 并执行「设备复位 -> 恢复初始状态」；断开 →「串口 COM1 已断开」→ 重连 →「已打开串口 COM1, 波特率 115200」→ 恢复「已连接 COM1」，无未观察 Task 异常 |
+
+### 9.2 仍阻塞发布
+
+| 项 | 原因 |
+| --- | --- |
+| 真实硬件验收 | 无 ESP8266 / USB 串口芯片 |
+| 干净机安装 | 无第二台机器 |
+| 回滚演练 + 数据库备份 | 需人工执行并留存备份 |
+| 报警触发与确认（E2E） | JSON 报文不含 `errorCode`，`AlarmStateMachine.Evaluate` 只按设备上报 `ErrorCode` 判定，模拟器阈值固定 80、温度钳制 10~60，无法制造故障态；需设备侧故障注入或 Modbus 故障帧构造 |
+| 首启默认值 | 无 `settings.json` 时 `SettingsService.LoadSettings` 写盘无兜底会中断启动（`:38`）；默认 `ComPort` 被赋成 `Sensor_01`（`:96`），不满足开箱即用 |
+| 日志级别 | `Debug` 硬编码，未按现场口径收敛 |
+| 保留策略长期收敛 | 本轮只做了"45 天种子数据 + 30 天保留"的单次端到端清理（1800 → 1200 行），连续运行 ≥24 小时后的库大小 / `-wal` 收敛仍未观察（[data-retention.md §5](data-retention.md) 已标注） |
+| v1.1.0 tag | 不可编译（CS0103），发布包来源待追溯 |
+
+### 9.3 结论
+
+候选包已就绪（`dist/SmartEdgeHMI-1.2.0-win-x64.zip`，SHA256 `99e8a5e9…34a1`），但**未打 tag、未发布**：数据链路与发布脚本已闭环，仍缺硬件验收、干净机安装、回滚演练三项"必须换环境"的证据，且首启默认值、报警 E2E、日志级别三项属产品侧待修项。
+
+环境限制如实记录：本机安全软件拦截未签名 exe 写 `%LOCALAPPDATA%\SmartEdgeHMI`（已签名 pwsh 可写而 .NET 探针同样被拒），`settings.json` 保存路径在本机无法验证，需干净机复验；日志中的 `保存通信设置失败` / `设备连接后自动下发阈值配置失败` 均源于此，不是产品缺陷。
