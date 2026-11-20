@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -47,28 +48,84 @@ public partial class App : Application
 
     public App()
     {
-        ConfigureLogging();
+        // 仅用于读取日志配置的最小配置源, 不提前构建完整 DI
+        var logConfiguration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: true)
+            .Build();
+
+        ConfigureLogging(logConfiguration);
     }
 
-    private static void ConfigureLogging()
+    private static void ConfigureLogging(IConfiguration configuration)
     {
 #if DEBUG
         Serilog.Debugging.SelfLog.Enable(msg => System.Diagnostics.Debug.WriteLine(msg));
 #endif
 
+        string logDirectory = ResolveLogDirectory();
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Debug()
+            .MinimumLevel.Is(ResolveMinimumLevel(configuration))
             .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Information)
             .Enrich.FromLogContext()
             .Enrich.WithThreadId()
             .WriteTo.Async(a => a.File(
-                path: "logs/log-.txt",
+                path: Path.Combine(logDirectory, "log-.txt"),
                 fileSizeLimitBytes: 10 * 1024 * 1024,
                 rollingInterval: RollingInterval.Day,
                 rollOnFileSizeLimit: true,
                 retainedFileCountLimit: 31))
             .WriteTo.Sink(new WpfSerilogSink())
             .CreateLogger();
+
+        // 把日志文件实际落点写进日志, 便于排查写入位置(尤其发生目录回退时)
+        Log.Information("日志文件目录: {LogDirectory}", logDirectory);
+    }
+
+    /// <summary>从配置解析日志最低级别, 缺失或非法时回退为 Information</summary>
+    private static Serilog.Events.LogEventLevel ResolveMinimumLevel(IConfiguration configuration)
+    {
+        if (Enum.TryParse(configuration["Logging:LogLevel:Default"], ignoreCase: true, out Serilog.Events.LogEventLevel level))
+            return level;
+
+        return Serilog.Events.LogEventLevel.Information;
+    }
+
+    /// <summary>解析日志目录: 优先 %LOCALAPPDATA%\SmartEdgeHMI\logs, 不可写时依次回退程序目录与临时目录</summary>
+    private static string ResolveLogDirectory()
+    {
+        string[] candidates =
+        [
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartEdgeHMI", "logs"),
+            Path.Combine(AppContext.BaseDirectory, "logs"),
+            Path.Combine(Path.GetTempPath(), "SmartEdgeHMI", "logs")
+        ];
+
+        foreach (string candidate in candidates)
+        {
+            if (IsDirectoryWritable(candidate))
+                return candidate;
+        }
+
+        // 全部候选都不可写时仍返回最后一个, Serilog 写入失败会经 SelfLog 暴露
+        return candidates[^1];
+    }
+
+    /// <summary>检查目录可创建且可写(写入并删除探针文件)</summary>
+    private static bool IsDirectoryWritable(string directory)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+            string probeFile = Path.Combine(directory, ".write_probe.tmp");
+            File.WriteAllText(probeFile, string.Empty);
+            File.Delete(probeFile);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static void SetStaticDependencies(IConfiguration configuration, IServiceProvider serviceProvider)
