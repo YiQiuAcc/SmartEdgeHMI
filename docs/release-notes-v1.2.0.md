@@ -18,10 +18,10 @@
 | 趋势查询 SQL 分桶 | 加载 30 天趋势图的内存分配 80,672 KB → 765.13 KB（-99.1%），耗时持平（见 §5 已知问题 4）；数据量再涨十倍也不会一次性对象化全部原始行 | [performance-benchmarks.md §8.3](performance-benchmarks.md) |
 | 遥测复合索引 `(DeviceId, Timestamp)` | 按设备窗口查询遥测不再扫描放大（591 ms → 1.1 ms，见 §3 修复 3） | [performance-benchmarks.md §8.4](performance-benchmarks.md) |
 | 数据保留策略 | 可配置遥测保留天数（默认 30 天）与批数上限，报警默认不删；启动后自动清理过期遥测，库文件不再无限膨胀。本机端到端实测：45 天种子数据 + 30 天保留，清理后遥测 1800 → 1200 行、报警 180 行未动 | [data-retention.md](data-retention.md) · [release-checklist.md §12](release-checklist.md) |
-| `tools/package.ps1` 一键打包 | 一条命令完成 test / publish / zip / SHA256，产物输出至 `dist/`，三次重跑幂等；发布不再依赖手工多步操作 | [release-checklist.md §7](release-checklist.md) · [next-steps-v1.2.md §8](next-steps-v1.2.md) |
-| CI 覆盖率产物与漏洞扫描 | 每次 CI 运行上传测试覆盖率 artifact，并对依赖做漏洞扫描（informational），供应链问题可提前发现 | [next-steps-v1.2.md §8](next-steps-v1.2.md)（V12-14） |
+| `tools/package.ps1` 一键打包 | 一条命令完成 test / publish / zip / SHA256，产物输出至 `dist/`，三次重跑幂等；发布不再依赖手工多步操作 | [release-checklist.md §7](release-checklist.md) · 提交 `aee9346` |
+| CI 覆盖率产物与漏洞扫描 | 每次 CI 运行上传测试覆盖率 artifact，并对依赖做漏洞扫描（informational），供应链问题可提前发现 | [CI workflow](../.github/workflows/ci.yml) · 提交 `aee9346` |
 | 启动配置校验（9 参数） | 配置非法（如 BaudRate=0 / PollingIntervalMs=5 / MaxLogEntries=10）时启动即弹窗逐条列出非法参数并指向 `settings.json` 路径，退出码 1，不再带病运行；配置合法时日志输出「设置校验通过」 | [release-checklist.md §12](release-checklist.md) |
-| 日志批量裁剪 | 内存日志按 `MaxLogEntries` 上限批量裁剪，长时间运行不再无界累积 | [next-steps-v1.2.md §8](next-steps-v1.2.md)（V12-15） |
+| 日志批量裁剪 | 内存日志按 `MaxLogEntries` 上限批量裁剪，长时间运行不再无界累积 | 提交 `d20fb46` |
 
 ## 3. 修复
 
@@ -87,12 +87,12 @@
 | --- | --- |
 | 性能数字唯一口径（查询下推 / .NET 8 复测 / 写放大） | [performance-benchmarks.md](performance-benchmarks.md)（§8.3 / §8.5 / §9） |
 | 本机桌面走查记录（2026-11-17 23:19–23:31，启动 / 双开 / Watchdog / 迁移 / 保留清理） | [release-checklist.md §12](release-checklist.md) |
-| 发布走查闭环项与阻塞项汇总 | [next-steps-v1.2.md §9](next-steps-v1.2.md) |
+| 项目现状、发布阻塞项与下一步计划 | [next-steps-v1.2.md §2 / §4](next-steps-v1.2.md) |
 | 硬件验收状态（六项均未执行） | [hardware-validation.md](hardware-validation.md) |
 | 数据保留策略说明 | [data-retention.md](data-retention.md) |
 | 串口 CTS 竞态复盘 | [postmortem-serial-dispose.md](postmortem-serial-dispose.md) |
 | 发布检查表（勾选状态与签字） | [release-checklist.md](release-checklist.md) |
-| 构建提交 | `ae10336`（main HEAD，候选包构建来源） |
+| 构建提交 | `ae10336`（候选包构建时的 main HEAD，后续已有文档提交） |
 | 基准时效依据 | `8dfcb40`（最后一次基准相关提交）之后 `SmartEdgeHMI/Data` 仅 `c4579d0` 新增保留服务，未触及 LTTB 与写入热路径，无需重跑基准 |
 | 旧库生成提交（v1.1.0 tag 不可编译，改用同 schema 旧库） | `3cb8a00` |
 | 串口修复提交 | `30390aa` |
