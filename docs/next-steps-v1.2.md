@@ -1,149 +1,128 @@
-# v1.2 里程碑 · 工程可信度与真实设备验收
+# SmartEdgeHMI 现状与 v1.2 下一步计划
 
-> 创建：2026-11-17（TASK-004）｜ 上一发布版本：v1.1.0
-> 本文所有性能数字一律引用 [performance-benchmarks.md](performance-benchmarks.md)，不另造数字；
-> 测试数量以最近一次 `dotnet test` 实测为准（2026-11-17，Release，48 通过 / 0 失败，TASK-005 实测）。
+> 更新日期：2026-11-20
+> 评估基线：`main` @ `7314f24`，上一发布标签：`v1.1.0`
+> 当前结论：**v1.2.0 候选包已构建并完成部分本机走查，但正式发布仍被阻塞。**
+> 本文取代此前同文件中“未提交、CI 首绿待确认”等早期状态；历史证据以提交记录和专项文档为准。
 
-## 1. 目标与非目标
+## 1. 评估边界
 
-### 目标
+本次判断仅依据 README、ROADMAP、发布/性能/硬件/数据保留文档、目录结构和 Git 近期提交。
 
-1. 补齐"外部可验证的工程信号"：CI 门禁、真实徽章、LICENSE、集中包版本、性能实测、故障复盘（大部分已就绪，待提交推送）。
-2. 完成 ESP8266 真实硬件验收：按可重复模板执行测试矩阵并签字归档。
-3. 走通一次正式发布流程：打包、校验和、安装、发布后 smoke、回滚预案（v1.1.0 已发布过 zip，但未按检查表走查）。
+- 未深入分析业务源代码，未运行构建、测试、基准或硬件测试。
+- 未执行 `git fetch`，未联网复核 GitHub Actions 或 Releases。
+- 下文“87 通过 / 0 失败”“CI 全绿”等均为仓库文档中的历史记录，不代表本次重新验证。
+- 文档声明的完成项与独立验收通过严格区分；发布前仍需在实际发布提交上复验。
 
-### 非目标（明确不做）
+## 2. 项目现状总结
 
-- **不做新协议**：不新增 Modbus TCP / CAN / MQTT 等协议栈，JSON-Lines 与 Modbus RTU 双协议保持现状。
-- **不做云平台**：不上云、不加远程遥测 / OTA / 设备管理后台。
-- **不重构架构**：分层、DI 注册、协议管道、存储模型保持现状，不为"更优雅"动承重结构。
-- **不为覆盖率硬补 WPF UI 测试**：现有协议层 / 状态机测试的叙事已足够，不凑数字。
+### 2.1 项目定位与组成
 
-## 2. 已完成清单（只列有证据的事项）
+SmartEdgeHMI 是 Windows 工业边缘上位机，主体为 .NET 8 WPF 应用，配套组件包括：
 
-| # | 事项 | 证据链接 |
-| --- | --- | --- |
-| 1 | CI workflow：restore → build(Release) → test → format 四步门禁（windows-latest） | [.github/workflows/ci.yml](../.github/workflows/ci.yml) |
-| 2 | LICENSE（MIT 全文），与 README 徽章声明一致 | [LICENSE](../LICENSE) |
-| 3 | format 门禁：`dotnet format --verify-no-changes` 退出码 0（2026-11-17 实测） | TASK-003 报告 §4；CI 第 4 步同口径 |
-| 4 | 单元测试 48 通过 / 0 失败（2026-11-17，`dotnet test -c Release` 实测；测试方法 48 个：状态机 17 + JSON 8 + Modbus 11 + CRC 3 + 串口传输 1 + LTTB 5 + Task 工具 1 + SQLite 数据层 2） | TASK-003 报告 §4 · TASK-005 报告 |
-| 5 | LTTB 降采样单元测试（5 个，覆盖规模 / 首尾保留 / 边界） | [SmartEdgeHMI.Tests/Utils/LttbDownsamplerTests.cs](../SmartEdgeHMI.Tests/Utils/LttbDownsamplerTests.cs) |
-| 6 | 串口打开失败 / 关闭竞态修复：Token 缓存 + fire-and-forget 异常观察器（提交 `30390aa`） | [postmortem-serial-dispose.md](postmortem-serial-dispose.md) |
-| 7 | 性能基准（BenchmarkDotNet 实测：LTTB 100 万点→1000 点 13.8 ms / 7.87 KB；SQLite WAL+NORMAL 批量事务 50/批 ≈19.6 万行/秒） | [performance-benchmarks.md](performance-benchmarks.md) |
-| 8 | 串口故障复盘（现象 → 根因 → 修复 → 防复发 → 残余风险） | [postmortem-serial-dispose.md](postmortem-serial-dispose.md) |
-| 9 | GIF 归档：4 个演示动图移入 `docs/assets/`，英文 kebab-case 命名，README 引用同步修正 | [assets/](assets/) |
-| 10 | 包版本集中管理：`Directory.Build.props`（公共属性 + CI 标记）+ `Directory.Packages.props`（集中包版本） | [Directory.Build.props](../Directory.Build.props) · [Directory.Packages.props](../Directory.Packages.props) |
-| 11 | README 收敛：伪造徽章删除、真实 CI 徽章、60FPS / 零分配表述收敛、测试数改 46、新增"工程证据"小节（TASK-004） | [README.md](../README.md) |
-
-> 注意：第 1–11 项当前**均在工作区、尚未提交**（见 §3 第 3 条）。
-
-## 3. 未完成清单（诚实口径）
-
-| # | 事项 | 状态 | 去向 |
-| --- | --- | --- | --- |
-| 1 | 真实硬件验收 | **未执行**。本机仅存在 ELTIMA Virtual Serial Port（COM1↔COM2）虚拟串口对，未检测到 CH340/CP210x 等 USB 串口芯片或 ESP8266 设备 | [hardware-validation.md](hardware-validation.md) |
-| 2 | 发布包与安装验证 | 未执行。v1.1.0 zip 已发布，但打包 / 校验和 / 干净机安装 / 发布后 smoke / 回滚未按检查表走查 | [release-checklist.md](release-checklist.md) |
-| 3 | 工作区遗留改动提交 | **未提交**。CI、LICENSE、GIF 归档、基准工程、文档、`coverlet.collector` 8.0.1 + `SQLitePCLRaw.lib.e_sqlite3` 原生库等改动全部待提交；提交前须 `dotnet test` 全绿 | git 工作区（`git status`） |
-
-## 4. 任务表
-
-| 编号 | 优先级 | 任务 | 负责人 | 验收标准 | 证据链接 | 状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| V12-01 | P0 | 提交工作区全部遗留改动 | lead | `dotnet test` 全绿后提交，`git status` 干净，无未跟踪文件 | — | 未完成 |
-| V12-02 | P0 | 推送并确认 CI 首绿、徽章生效 | lead | GitHub Actions 四步全绿；README CI 徽章显示绿色 | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | 未完成 |
-| V12-03 | P1 | 真实硬件验收执行与签字 | ZCode 执行 / lead 签字 | 测试矩阵 6 项判定均 ≥"通过（带备注）"，签字栏签署 | [hardware-validation.md](hardware-validation.md) | 未执行 |
-| V12-04 | P1 | v1.2 发布流程走查（打包→校验和→安装→smoke→回滚预案） | lead | release-checklist.md 逐项通过并签字 | [release-checklist.md](release-checklist.md) | 未执行 |
-| V12-05 | P2 | README 表述收敛（徽章 / 性能数字 / 工程证据） | ZCode | 无伪造徽章；每个性能数字有实测出处；测试数为实际值 | [README.md](../README.md) | ✅ 已完成 |
-| V12-06 | P2 | BenchmarkDotNet 性能基准与文档 | ZCode | 原始数据 + 复现命令 + 未测量边界成文 | [performance-benchmarks.md](performance-benchmarks.md) | ✅ 已完成 |
-| V12-07 | P2 | 串口 CTS 竞态故障复盘 | ZCode | 现象→根因→修复→防复发闭环，含残余风险 | [postmortem-serial-dispose.md](postmortem-serial-dispose.md) | ✅ 已完成 |
-
-## 5. 发布条件（Definition of Done）
-
-v1.2 打 tag 前必须**全部**满足：
-
-1. `dotnet build -c Release`、`dotnet test -c Release`、`dotnet format --verify-no-changes` 本机与 CI 双口径全绿。
-2. [performance-benchmarks.md](performance-benchmarks.md) 含原始数据与复现命令；README 引用的每个性能数字都能在该文档找到出处。
-3. [hardware-validation.md](hardware-validation.md) 测试矩阵执行完毕、判定为"通过"，签字栏已签署。
-4. [release-checklist.md](release-checklist.md) 逐项通过，责任人 / 日期签字。
-5. `git status` 干净，tag 指向已通过上述验证的提交。
-
-## 6. 风险与依赖
-
-| 风险 / 依赖 | 影响 | 缓解 |
-| --- | --- | --- |
-| **无真实硬件**（本机仅 ELTIMA 虚拟串口对 COM1↔COM2） | 电气噪声、断帧、拔插、断电等真实设备路径完全未验证，V12-03 无法闭环 | 验收模板已备（hardware-validation.md）；短期以虚拟串口 + Node 模拟器覆盖功能面；待采购 / 借用 NodeMCU v2（ESP8266）+ 3.3V USB-TTL 适配器后执行 |
-| **UI 帧率无法自动化测量** | "60FPS" 只能作为未实测上限表述，不能进 DoD，也无法进 CI | README 已收敛为"端到端渲染帧率未测量"；如需实测，另行安排人工录屏 / 帧计时，不进本里程碑 |
-| **Windows 专用**（WPF + COM 口） | CI 只能跑 windows-latest，无跨平台验证面；Linux/macOS 用户不可用 | CI 已固定 windows-latest；明确不在本里程碑投入跨平台 |
-| fire-and-forget 异常仅记日志、无告警 | 异常"可观测地吞掉"，依赖人工巡检日志 | postmortem 残余风险已记录；本里程碑不加告警系统，仅靠日志巡检 |
-| 工作区大量改动未提交 | CI / 徽章 / 基准在远端不可见，任何本地验证结论都尚未进入仓库历史 | V12-01 / V12-02 列为 P0，先于其他事项执行 |
-
-## 7. 下一迭代建议（不展开功能规划）
-
-1. 硬件到位即按 [hardware-validation.md](hardware-validation.md) 执行并归档证据（照片 / 串口日志 / 录屏），据此收口 v1.2；若短期无硬件，则将 v1.2 冻结为"工程可信度"口径发布，硬件验收顺延为独立标签（如 v1.2.1-hw）。
-2. 连接级 PRAGMA 已修复（TASK-005）：`SqliteConnectionFactory.CreateConnectionAsync` 对每个新连接设置 `synchronous=NORMAL`，应用写入口径与 [performance-benchmarks.md](performance-benchmarks.md) 基准一致；后续可在同等环境复测确认。
-
-## 8. v1.2 夜间补强批次（2026-11-17，已提交并推送）
-
-> 本文 §3 的"未提交"状态已被本批次覆盖：工作区全部提交，CI 首轮全绿（run 43915278633，8 步 success，2m10s）。
-> 本节只记录有实测数字的完成项，数字出处统一指向 [performance-benchmarks.md](performance-benchmarks.md)。
-
-| 编号 | 事项 | 结果与证据 |
-| --- | --- | --- |
-| V12-08 | 报警历史查询下推（`WHERE` + `LIMIT` + `AlarmHistory(Timestamp)` 索引） | 8 589 µs → 118 µs，分配 -98.7%；7 个仓储测试 |
-| V12-09 | 报警上下文查询重写（按报警窗口逐条查询） | 412 ms / 86.7 MB → 1.1 ms / 0.27 MB；7 个测试（设备隔离/窗口边界/防退化） |
-| V12-10 | 趋势查询 SQL 分桶（每桶温度 min/max 真实采样点） | 20 万行分配 80 MB → 0.75 MB；**时间持平**，不宣称提速；5 个测试 |
-| V12-11 | 遥测复合索引 `(DeviceId, Timestamp)` | 窗口查询 591 ms → 1.1 ms；写放大 1.21×–1.33×（[§9](performance-benchmarks.md)） |
-| V12-12 | 数据保留策略 | 30 天/5000 行一批/200 批上限，报警默认不删；8 个测试；[data-retention.md](data-retention.md) |
-| V12-13 | 一键打包脚本 | `tools/package.ps1` 产出 self-contained zip + SHA256，`sha256sum -c` 通过，三次重跑幂等 |
-| V12-14 | CI 增强 | 覆盖率采集 + artifact 上传 + 漏洞扫描（informational） |
-| V12-15 | 启动配置校验 + 日志批量裁剪 | 9 个参数范围校验；11 个测试 |
-
-### 仍未完成
-
-| 事项 | 状态 | 说明 |
-| --- | --- | --- |
-| 真实硬件验收（V12-03） | **仍未执行** | 本机仍只有 ELTIMA 虚拟串口对；模板见 [hardware-validation.md](hardware-validation.md) |
-| 发布流程走查（V12-04） | 脚本就绪，未逐项签字 | [release-checklist.md](release-checklist.md) 已改为脚本口径，干净机安装/回滚仍需人工执行 |
-
-### 测试与门禁（本批次结束时的实测口径）
-
-- `dotnet test -c Release`：**87 通过 / 0 失败**（约 6 秒）
-- `dotnet build -c Release`：0 错误，2 条既有 NU1701（SkiaSharp.Views.WPF）警告
-- `dotnet format --verify-no-changes`：退出码 0
-
-## 9. v1.2.0 发布走查（2026-11-17，本机）
-
-> 门禁口径：`dotnet build -c Release` 0 错误（2 条既有 NU1701 警告）、`dotnet test -c Release` 87 通过 / 0 失败、format 退出码 0、CI run `43938597156`（`ae10336`）8 步 success；走查时间 2026-11-17 23:19–23:56（Windows 11 · i7-12650H，ELTIMA 虚拟串口对 COM1↔COM2）。
-
-### 9.1 已闭环
-
-| 项 | 结果与证据 |
+| 组成 | 当前作用 |
 | --- | --- |
-| 启动冒烟 | 坏配置（BaudRate=0 / PollingIntervalMs=5 / MaxLogEntries=10）启动弹窗「配置错误」，逐条列出 3 个非法参数并指向 `%LOCALAPPDATA%\SmartEdgeHMI\settings.json`，退出码 1，日志 3 条 `[FTL] 设置校验失败`；正常启动主窗口 1s 内出现，日志「设置校验通过」「数据保留策略已启动」「Watchdog 心跳发送已启动」，正常关闭退出码 0、无 `[FTL]` |
-| 双开 | 第二实例弹「系统提示 / SmartEdgeHMI 系统已在运行中, 请勿重复启动！」→ 退出码 0，首实例存活 |
-| Watchdog | Watchdog 自行拉起主程序，18 秒内 9 次心跳无误差；强杀后 **1.8 s** 重启新 PID、心跳恢复，日志「HMI 主进程已退出 (ExitCode: -1), 正在重启」 |
-| 迁移 | `v1.1.0` tag 不可编译（CS0103），旧库由 `3cb8a00` 生成（同 schema）；新版本打开自动补建 `idx_alarm_timestamp`、`idx_telemetry_device_timestamp`，1800 遥测 / 180 报警迁移前后完全一致，`PRAGMA journal_mode` 保持 wal |
-| 保留清理（端到端，非单测） | 45 天种子数据 + 30 天保留：日志「数据保留清理完成: 遥测删除 600 行(保留 30 天), 报警删除 0 行(保留 0 天), 批数上限截断: false」，遥测 1800 → **1200**（15 天 × 40 行）、报警保持 180 未动（策略说明见 [data-retention.md](data-retention.md)） |
-| 包内容 | 含 `SmartEdgeHMI.exe`、`SmartEdgeHMI.Watchdog.exe`、`appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h` |
-| 校验和 | `dist/SmartEdgeHMI-1.2.0-win-x64.zip` 82,065,173 字节 / 78.26 MB（290 个根文件 / 511 个条目），SHA256 `99e8a5e937bcb2403294cf01c07c46d5c6ecdbe11ee7b1550e34dc48d61034a1`，`sha256sum -c` 等价校验通过 |
-| LTTB 复现命令 | `dotnet run -c Release --project SmartEdgeHMI.Benchmarks -- --verify` → 10000 / 100000 / 1000000 三点均精确返回 1000 条、首尾保留，PASSED（基准时效：`8dfcb40` 之后 `SmartEdgeHMI/Data` 仅 `c4579d0` 新增保留服务，未触及 LTTB 与写入热路径，无需重跑基准） |
-| 模拟器 E2E（数据链路） | JSON 模式 COM1↔COM2 虚拟串口对：遥测约 1 行/秒入库（1200 → 1245 行），当前值实时刷新 24.4~25.3 °C；「设备紧急复位」下发后模拟器收到 `{"action":3}` 并执行「设备复位 -> 恢复初始状态」；断开 →「串口 COM1 已断开」→ 重连 →「已打开串口 COM1, 波特率 115200」→ 恢复「已连接 COM1」，无未观察 Task 异常 |
+| `SmartEdgeHMI/` | WPF 主程序，采用 MVVM 与分层结构，覆盖串口通信、协议解析、实时趋势、报警、SQLite 存储和日志 |
+| `SmartEdgeHMI.Watchdog/` | 独立守护进程，通过心跳检测主进程异常并重启 |
+| `SmartEdgeHMI.Tests/` | xUnit 测试，覆盖协议、状态机、串口、数据层、ViewModel 和工具类 |
+| `SmartEdgeHMI.Benchmarks/` | BenchmarkDotNet 基准，覆盖 LTTB、SQLite 写入和查询 |
+| `Firmware/` | PlatformIO / ESP8266 NodeMCU v2 固件 |
+| `Simulator/` | Node.js 虚拟串口设备，支持 JSON 与 Modbus 模式 |
+| `tools/`、`docs/`、`.github/workflows/` | 一键打包、发布与验收证据、CI 门禁 |
 
-### 9.2 仍阻塞发布
+### 2.2 当前阶段判断
 
-| 项 | 原因 |
-| --- | --- |
-| 真实硬件验收 | 无 ESP8266 / USB 串口芯片 |
-| 干净机安装 | 无第二台机器 |
-| 回滚演练 + 数据库备份 | 需人工执行并留存备份 |
-| 报警触发与确认（E2E） | JSON 报文不含 `errorCode`，`AlarmStateMachine.Evaluate` 只按设备上报 `ErrorCode` 判定，模拟器阈值固定 80、温度钳制 10~60，无法制造故障态；需设备侧故障注入或 Modbus 故障帧构造 |
-| 首启默认值 | 无 `settings.json` 时 `SettingsService.LoadSettings` 写盘无兜底会中断启动（`:38`）；默认 `ComPort` 被赋成 `Sensor_01`（`:96`），不满足开箱即用 |
-| 日志级别 | `Debug` 硬编码，未按现场口径收敛 |
-| 保留策略长期收敛 | 本轮只做了"45 天种子数据 + 30 天保留"的单次端到端清理（1800 → 1200 行），连续运行 ≥24 小时后的库大小 / `-wal` 收敛仍未观察（[data-retention.md §5](data-retention.md) 已标注） |
-| v1.1.0 tag | 不可编译（CS0103），发布包来源待追溯 |
+项目已经越过基础功能搭建阶段，当前主线是 **数据层长期运行能力、工程可信度和 v1.2.0 发布验收**，而不是新协议或新平台扩张。
 
-### 9.3 结论
+- 评估开始时 Git 工作区干净，位于 `main`；本地远程跟踪引用未显示 ahead/behind。
+- 本地标签只有 `v1.0.0`、`v1.1.0`，尚无 `v1.2.0` 标签。
+- v1.2.0 候选 zip 与 SHA256 已有本机记录，构建来源为 `ae10336`。
+- 候选构建提交之后的两次提交为文档提交；一旦完成下述产品修复，必须生成新的候选包，不能继续沿用旧包结论。
+- 发布检查表仍有明确未通过项，因此不能把“候选包就绪”表述为“已具备正式发布条件”。
 
-候选包已就绪（`dist/SmartEdgeHMI-1.2.0-win-x64.zip`，SHA256 `99e8a5e9…34a1`），但**未打 tag、未发布**：数据链路与发布脚本已闭环，仍缺硬件验收、干净机安装、回滚演练三项"必须换环境"的证据，且首启默认值、报警 E2E、日志级别三项属产品侧待修项。
+### 2.3 近期完成的工作
 
-环境限制如实记录：本机安全软件拦截未签名 exe 写 `%LOCALAPPDATA%\SmartEdgeHMI`（已签名 pwsh 可写而 .NET 探针同样被拒），`settings.json` 保存路径在本机无法验证，需干净机复验；日志中的 `保存通信设置失败` / `设备连接后自动下发阈值配置失败` 均源于此，不是产品缺陷。
+| 主题 | 代表提交 | 近期成果 |
+| --- | --- | --- |
+| 报警查询下推 | `66dc37f`、`2a02b40` | 报警历史改为 SQL 过滤与限量；报警上下文按窗口查询，降低大库查询耗时和内存分配 |
+| 趋势与索引优化 | `60754f5`、`8dfcb40` | 趋势改为 SQL 分桶，新增遥测 `(DeviceId, Timestamp)` 复合索引；文档如实保留“趋势耗时未明显提升”和写入放大的边界 |
+| 数据保留 | `c4579d0` | 增加可配置遥测保留与分批清理，报警默认不删除 |
+| 应用健壮性 | `d20fb46` | 增加启动配置校验和日志批量裁剪 |
+| 发布工程化 | `aee9346`、`cdc0461` | 增加测试到 zip/SHA256 的一键打包，补 CI 覆盖率与漏洞扫描，移除发布工程中的测试工具引用 |
+| 性能与发布证据 | `ae10336` | 补 .NET 8.0.34 查询基准复测、候选包与发布证据 |
+| 发布走查 | `befa31d` | 记录启动、双开、Watchdog、迁移、保留清理、模拟器数据链路等本机结果及阻塞项 |
+| 短期稳定性观察 | `7314f24` | 补 25 分钟数据保留观察：WAL 约 4.13 MB 后稳定、内存无明显漂移；24 小时验证仍空缺 |
+
+历史文档还记录：Release 测试 87 通过 / 0 失败、build 0 错误（2 条既有 NU1701 警告）、format 退出码 0，以及 `ae10336` 上 CI 全绿。上述结果需在最终发布提交上重新确认。
+
+## 3. 后续开发方向
+
+1. **先完成发布阻塞闭环**：首启、生产日志、报警 E2E 属于产品侧缺口，应先于新功能处理。
+2. **把验证从开发机扩展到真实环境**：真实硬件、无开发环境 Windows 干净机、备份与回滚是当前不可替代的证据。
+3. **从短时走查转向长期运行证据**：以固定候选包执行至少 24 小时连续运行，观察数据库、WAL、内存、日志和重连行为。
+4. **提高版本可追溯性与文档一致性**：确保标签、源码提交、候选包、校验和、CI 与发布说明指向同一版本。
+5. **发布后再扩展性能证据和现场能力**：补目标运行时基准、真实 UI 帧率与满负荷边界；新协议、云平台和大规模重构继续后置。
+
+## 4. 下一步任务（按优先级）
+
+### P0：正式发布前必须闭环
+
+| 编号 | 事项 | 目标 | 作用范围 | 主要产出与完成标准 |
+| --- | --- | --- | --- | --- |
+| P0-01 | 修复首启与默认配置 | 无 `settings.json` 或配置目录不可写时不崩溃；默认连接参数合法、语义明确 | 设置加载/保存、启动异常处理、默认配置及相关测试；不重做配置系统 | 首启、配置损坏、只读/不可写目录均有明确行为；正常首启可进入主界面；回归测试和走查记录入 release checklist |
+| P0-02 | 收敛生产日志配置 | 默认使用现场合适的日志级别，日志写入稳定、可预期且可写的位置，避免受启动目录影响 | 日志初始化、发布配置、路径与失败提示；不引入新的日志平台 | 默认生产级别不低于 Information；从不同工作目录启动行为一致；日志路径与写入失败处理有记录；打包配置同步更新 |
+| P0-03 | 补齐报警端到端故障注入 | 可重复验证“故障触发 → 报警生成 → 用户确认 → 故障恢复”的完整闭环 | Node 模拟器、必要的测试夹具与 E2E 操作脚本；不改变既有报警语义，不新增协议 | 模拟器能受控进入和退出故障态；触发、确认、恢复均留有 UI/数据库/日志证据；普通遥测与断开重连回归不受影响 |
+| P0-04 | 基于修复后提交重建候选版本 | 让源码、测试、CI、发布包、SHA256 和文档指向同一个可发布提交 | 当前解决方案、CI、`tools/package.ps1`、Release Notes 与检查表 | 在新提交上完成 build/test/format 和 CI；重新生成 self-contained zip 与 SHA256；核对包内容；记录新提交号并作废旧候选包结论 |
+| P0-05 | 干净 Windows 机器验收 | 证明便携包不依赖开发机、本机 SDK 或特殊目录状态 | 无 .NET/开发环境的 Windows 机器；解压启动、首启、设置保存、模拟器 smoke；不涉及安装器开发 | 解压即可启动；设置可保存并重启复现；核心数据链路通过；记录机器、日期、包哈希和结果。依赖 P0-04 |
+| P0-06 | ESP8266 真实硬件验收 | 验证虚拟串口无法覆盖的电气、断帧、拔插、断电和真实固件链路 | `docs/hardware-validation.md` 六项矩阵、真实串口、固件与 Watchdog 重启后的串口恢复 | 六项均有结果、日志/照片或录屏证据和签字；异常项形成明确修复任务；Watchdog 重启后串口可恢复。依赖硬件到位与 P0-04 |
+| P0-07 | 备份、升级与回滚演练 | 证明升级失败时可恢复程序和用户数据，而非只有书面步骤 | 上一版实际发布包、当前候选包、数据库 `*.db`/`-wal`/`-shm` 冷备份与恢复 | 在停止主程序和 Watchdog 后完成备份、升级、回滚与恢复；数据库可打开、关键表条数核对一致；记录备份位置、保留规则和演练结果。依赖 P0-04 |
+
+### P1：发布可信度与长期稳定性
+
+| 编号 | 事项 | 目标 | 作用范围 | 主要产出与完成标准 |
+| --- | --- | --- | --- | --- |
+| P1-01 | 至少 24 小时连续运行与保留观察 | 验证长期运行下内存、SQLite/WAL、日志和采集链路是否收敛 | 固定候选包、模拟器或真实设备、数据保留任务与监测脚本；不借机优化无关模块 | 预先定义采样间隔与通过阈值；留存内存、句柄、库/WAL 大小、遥测/报警条数、重连和错误日志；明确通过或阻塞结论。依赖 P0-04 |
+| P1-02 | 追溯 `v1.1.0` 标签与发布包来源 | 消除旧版本“标签不可编译、包来源不一致”的追溯断点，为回滚和后续发布提供可信基线 | Git 标签、Release 资产、构建记录与版本说明；不重写公开历史 | 查明实际构建提交和包哈希；无法重建时如实记录限制并规定后续 corrective tag/发布记录策略；新版本证据链不再出现同类断点 |
+| P1-03 | 收敛文档与性能口径 | 消除 48/87 测试数、未提交/已提交、待 CI/已全绿等相互矛盾的状态，避免把局部结果写成正式发布结论 | README、ROADMAP、next-steps、Release Notes、检查表和性能文档 | 所有状态以同一发布提交为准；测试数和 CI 状态可复验；性能数字注明运行时和未测边界；若继续公开引用 LTTB/SQLite 写入指标，补齐目标 .NET 8 运行时复测 |
+
+### P2：v1.2 闭环后的增强
+
+| 编号 | 事项 | 目标 | 作用范围 | 主要产出与完成标准 |
+| --- | --- | --- | --- | --- |
+| P2-01 | 补现场性能与容量边界 | 将微基准结论扩展为可解释的实际使用边界 | UI 实际帧率、真实串口吞吐、30 天满负荷数据查询、长期磁盘行为与 BenchmarkDotNet | 形成分场景实测报告和容量建议；先测量再决定是否优化，不预设“60 FPS”“零分配”等结论 |
+| P2-02 | 评估现场可诊断性增强 | 降低部署后定位连接、配置、存储和 Watchdog 问题的成本 | 现有日志、健康状态与诊断导出流程；不改变主架构 | 先根据 v1.2 验收和试运行问题形成需求清单，再单独立项；不得挤占 P0/P1 发布闭环资源 |
+
+## 5. 推荐执行顺序与依赖
+
+1. **产品修复批次**：P0-01、P0-02、P0-03 可分别推进，但都应进入同一个候选基线。
+2. **重建与回归**：完成 P0-04 后，冻结候选提交和包哈希；后续任何代码变化都需重新生成候选证据。
+3. **外部环境验收**：基于同一候选包执行 P0-05、P0-06、P0-07；硬件和第二台机器是外部依赖，应提前准备。
+4. **长期观察与追溯**：P1-01 使用同一候选包运行；P1-02、P1-03 可与外部环境验收并行整理。
+5. **发布决策**：P0 全部通过后，由发布负责人按检查表签字并打 tag；P1 未闭环项必须明确列入发布风险或继续阻塞，不能静默省略。
+6. **下一阶段**：v1.2 收口后再进入 P2；新协议、云平台、OTA、设备管理后台和大规模架构重构不属于本里程碑。
+
+## 6. v1.2 发布完成定义（DoD）
+
+- P0-01 至 P0-07 全部有通过记录和可定位证据，无“未执行”项被勾选为通过。
+- 最终发布提交上本机 build/test/format 与远端 CI 均通过，测试数量按当次实际结果填写。
+- Release Notes、候选 zip、SHA256、CI 运行和 Git tag 均指向同一提交；旧候选包及旧哈希明确作废。
+- 首启、生产日志、报警完整状态链、真实硬件、干净机、Watchdog 恢复、升级/回滚与数据库恢复均通过。
+- 长期运行结果与性能结论按实际测量边界披露；未测项目明确写“未验证”。
+- README、ROADMAP、next-steps 和发布检查表状态一致，发布负责人完成最终签字。
+
+## 7. 当前非目标
+
+- 不新增 Modbus TCP、CAN、MQTT 等协议。
+- 不做云平台、远程遥测、OTA 或设备管理后台。
+- 不为“更优雅”重构现有分层、DI、协议管道和存储模型。
+- 不为覆盖率数字硬补低价值 WPF UI 测试。
+- 不在缺少新基准的情况下宣称进一步提速、固定帧率或零分配。
+
+## 8. 证据索引
+
+- [发布检查表](release-checklist.md)：逐项阻塞状态与本机走查记录。
+- [v1.2.0 Release Notes](release-notes-v1.2.0.md)：候选版本变更、已知问题、升级/回滚和包信息。
+- [真实硬件验收](hardware-validation.md)：六项硬件测试矩阵。
+- [数据保留说明](data-retention.md)：策略、清理行为与长期观察边界。
+- [性能基准](performance-benchmarks.md)：性能数字、运行时和未测量边界的唯一口径。
+- [串口故障复盘](postmortem-serial-dispose.md)：既有串口关闭竞态的根因与防复发记录。
