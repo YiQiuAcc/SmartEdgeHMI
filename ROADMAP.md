@@ -63,7 +63,7 @@
 
 **P0 · 可信度打底（必须先做，后面所有事的可信度都挂在这上面）**
 
-- [x] 接入 GitHub Actions CI：`dotnet restore` → `dotnet build -c Release` → `dotnet test` → `dotnet format --verify-no-changes`（[.github/workflows/ci.yml](.github/workflows/ci.yml)；**尚未提交推送，CI 首绿待确认**）
+- [x] 接入 GitHub Actions CI：`dotnet restore` → `dotnet build -c Release` → `dotnet test` → `dotnet format --verify-no-changes`（[.github/workflows/ci.yml](.github/workflows/ci.yml)；已提交推送，CI 全绿（run 44772013652 / `fb69bbe`））
 - [x] 将 README 中硬编码徽章（`build-passing`、`tests-39 passed`）替换为真实 workflow badge（[README.md](README.md) 徽章区 + "工程证据"小节，TASK-004）
 - [x] 补齐 `LICENSE` 文件（MIT 全文），与 README 徽章声明一致（[LICENSE](LICENSE)）
 
