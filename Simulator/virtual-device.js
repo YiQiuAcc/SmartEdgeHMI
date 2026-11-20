@@ -3,6 +3,7 @@
  * * 启动方式:
  * pnpm run sim:json    (JSON主动上报模式, 1秒/次)
  * pnpm run sim:modbus  (Modbus RTU轮询模式)
+ * pnpm run sim:fault   (JSON模式 + 定时故障窗口, 报警链路E2E用)
  */
 
 import { SerialPort } from "serialport";
@@ -33,16 +34,108 @@ setInterval(() => {
   }
 }, 1000);
 
+// ===== 故障注入 (P0-03): 按时间窗口确定地进入/退出故障态 =====
+// 计时基准: 进程启动时刻, 用 Date.now() - startTime 判定, 不依赖 setInterval 计数
+const startTime = Date.now();
+const faultConfig = { enabled: false, startMs: 0, durationMs: 0, code: 302 };
+let faultActive = false; // 故障期变量: JSON 与 Modbus 两条路径共用
+
+// 纯函数: elapsedMs 是否落在 [startMs, startMs + durationMs) 故障窗口内
+function isFaultActive(elapsedMs, startMs, durationMs) {
+  return elapsedMs >= startMs && elapsedMs < startMs + durationMs;
+}
+
+// 刷新故障期变量, 进入/退出各打一行 [FAULT] 日志 (JSON 与 Modbus 共用同一时间判断)
+function refreshFaultState() {
+  if (!faultConfig.enabled) return false;
+  const elapsedMs = Date.now() - startTime;
+  const active = isFaultActive(
+    elapsedMs,
+    faultConfig.startMs,
+    faultConfig.durationMs,
+  );
+  if (active !== faultActive) {
+    faultActive = active;
+    const tSec = Math.floor(elapsedMs / 1000);
+    console.log(
+      active
+        ? `[FAULT] 进入故障态 code=${faultConfig.code} (t=${tSec}s)`
+        : `[FAULT] 退出故障态 (t=${tSec}s)`,
+    );
+  }
+  return faultActive;
+}
+
 // 核心入口与配置
 const mode = (process.argv[2] || "json").toLowerCase();
 const portName = process.argv[3] || "COM2";
 const baudRate = parseInt(process.argv[4] || "115200", 10);
+
+// 故障注入参数: [--fault-window <开始秒> <持续秒>] [--fault-code <错误码>]
+const FAULT_USAGE =
+  "用法: node virtual-device.js <mode> <port> <baud> [--fault-window <开始秒> <持续秒>] [--fault-code <错误码>]";
+
+let faultWindowSec = null; // { startSec, durationSec }
+let faultCode = 302; // ErrorCode.ThresholdExceeded
+
+const flagArgs = process.argv.slice(5);
+for (let i = 0; i < flagArgs.length; i++) {
+  if (flagArgs[i] === "--fault-window") {
+    const startSec = Number(flagArgs[i + 1]);
+    const durationSec = Number(flagArgs[i + 2]);
+    if (
+      flagArgs[i + 1] === undefined ||
+      flagArgs[i + 2] === undefined ||
+      !Number.isFinite(startSec) ||
+      !Number.isFinite(durationSec) ||
+      startSec < 0 ||
+      durationSec <= 0
+    ) {
+      console.log(FAULT_USAGE);
+      process.exit(1);
+    }
+    faultWindowSec = { startSec, durationSec };
+    i += 2;
+  } else if (flagArgs[i] === "--fault-code") {
+    const code = Number(flagArgs[i + 1]);
+    if (
+      flagArgs[i + 1] === undefined ||
+      !Number.isInteger(code) ||
+      code < 0 ||
+      code > 65535
+    ) {
+      console.log(FAULT_USAGE);
+      process.exit(1);
+    }
+    faultCode = code;
+    i += 1;
+  } else {
+    // 未知参数不静默忽略
+    console.log(FAULT_USAGE);
+    process.exit(1);
+  }
+}
+
+if (faultWindowSec) {
+  faultConfig.enabled = true;
+  faultConfig.startMs = faultWindowSec.startSec * 1000;
+  faultConfig.durationMs = faultWindowSec.durationSec * 1000;
+  faultConfig.code = faultCode;
+}
 
 console.log(`\n🚀 启动虚拟设备模拟器...`);
 console.log(`🔌 端口: ${portName} @ ${baudRate} bps`);
 console.log(
   `📡 模式: ${mode === "modbus" ? "Modbus RTU (被动轮询)" : "JSON-Lines (主动上报)"}\n`,
 );
+
+if (faultConfig.enabled) {
+  console.log(
+    `[FAULT] 计划: 第 ${faultWindowSec.startSec} 秒进入故障态, 持续 ${faultWindowSec.durationSec} 秒, code=${faultConfig.code}`,
+  );
+  // 故障窗口巡检: 串口无流量 (如 Modbus 无人轮询) 时也能准点打印进入/退出日志
+  setInterval(refreshFaultState, 200);
+}
 
 const port = new SerialPort({ path: portName, baudRate });
 
@@ -66,6 +159,7 @@ function setupJsonProtocol(port) {
 
   // 发送遥测数据
   setInterval(() => {
+    const faultNow = refreshFaultState(); // 故障注入: 与 Modbus 路径共用同一判断
     const payload = {
       deviceId: "Sensor_01",
       temperature: parseFloat(state.temperature.toFixed(1)),
@@ -76,6 +170,12 @@ function setupJsonProtocol(port) {
     // 阈值监控：温度超过阈值时附加错误码
     if (state.status === 4) {
       payload.err_code = 302; // ErrorCode.ThresholdExceeded
+    }
+
+    // 故障注入: 窗口期内强制故障态并附加指定错误码 (退出后自动恢复阈值推导)
+    if (faultNow) {
+      payload.status = 4;
+      payload.err_code = faultConfig.code;
     }
 
     const jsonStr = JSON.stringify(payload);
@@ -136,6 +236,7 @@ function setupModbusProtocol(port) {
 }
 
 function handleModbusRequest(port, frame) {
+  const faultNow = refreshFaultState(); // 故障注入: 与 JSON 路径共用同一判断
   const slaveId = frame[0];
   const functionCode = frame[1];
   const startAddr = frame.readUInt16BE(2);
@@ -161,9 +262,10 @@ function handleModbusRequest(port, frame) {
         val = Math.round(state.temperature * 10); // 寄存器0: 温度
       else if (addr === 1)
         val = Math.round(state.humidity * 10); // 寄存器1: 湿度
-      else if (addr === 2) val = state.status; // 寄存器2: 设备状态 (DeviceStatus)
+      else if (addr === 2)
+        val = faultNow ? 4 : state.status; // 寄存器2: 设备状态 (故障注入期强制 Fault)
       else if (addr === 3)
-        val = state.status === 4 ? 302 : 0; // 寄存器3: 错误码 (ErrorCode)
+        val = faultNow ? faultConfig.code : state.status === 4 ? 302 : 0; // 寄存器3: 错误码 (ErrorCode)
 
       response.writeUInt16BE(val, offset);
       offset += 2;

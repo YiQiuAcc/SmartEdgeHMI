@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "sim:json": "node virtual-device.js json COM2 115200",
-    "sim:modbus": "node virtual-device.js modbus COM2 115200"
+    "sim:modbus": "node virtual-device.js modbus COM2 115200",
+    "sim:fault": "node virtual-device.js json COM2 115200 --fault-window 10 8"
   },
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
