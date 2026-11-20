@@ -136,8 +136,8 @@ public partial class MonitorViewModel : ViewModelBase,
         try
         {
             await _alarmRepo.UpdateAlarmStatesAsync(_alarmStateMachine.PendingAlarms);
-            // await 之后事件已返回, 活动表里的 NORMAL 记录已被移除, 此时重算才能在完全恢复后复位「一键确认全部」按钮
-            HasPendingAlarms = _alarmStateMachine.PendingAlarms.Count > 0;
+            // 同步任务的 SQLite 调用同步完成, 此处可能仍在事件窗口内, NORMAL 记录会短暂存在而不能作为待确认依据; 用非 NORMAL 过滤保证刚恢复的记录不把按钮点亮
+            HasPendingAlarms = _alarmStateMachine.PendingAlarms.Any(a => a.State != AlarmState.NORMAL);
         }
         catch (Exception ex)
         {
