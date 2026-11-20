@@ -136,6 +136,8 @@ public partial class MonitorViewModel : ViewModelBase,
         try
         {
             await _alarmRepo.UpdateAlarmStatesAsync(_alarmStateMachine.PendingAlarms);
+            // await 之后事件已返回, 活动表里的 NORMAL 记录已被移除, 此时重算才能在完全恢复后复位「一键确认全部」按钮
+            HasPendingAlarms = _alarmStateMachine.PendingAlarms.Count > 0;
         }
         catch (Exception ex)
         {
