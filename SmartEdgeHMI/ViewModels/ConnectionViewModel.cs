@@ -183,7 +183,13 @@ public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
     [RelayCommand]
     private async Task OpenPortAsync()
     {
-        if (string.IsNullOrEmpty(SelectedPort) || string.IsNullOrEmpty(SelectedBaudRate)) return;
+        if (string.IsNullOrEmpty(SelectedPort))
+        {
+            StatusText = "请先选择串口";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(SelectedBaudRate)) return;
 
         if (int.TryParse(SelectedBaudRate, out int baud))
         {
@@ -211,7 +217,11 @@ public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
     [RelayCommand]
     private async Task ToggleConnect()
     {
-        if (string.IsNullOrEmpty(SelectedPort)) return;
+        if (string.IsNullOrEmpty(SelectedPort))
+        {
+            StatusText = "请先选择串口";
+            return;
+        }
         if (_connectedPorts.Contains(SelectedPort))
             ClosePort();
         else

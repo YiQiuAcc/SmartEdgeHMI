@@ -11,17 +11,24 @@ public class SettingsService : ISettingsService
 {
     private AppSettings _currentSettings = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly string _settingsDirectory;
     private readonly string _filePath;
     private readonly IConfiguration _configuration;
     private static readonly JsonSerializerOptions _saveOptions = new() { WriteIndented = true };
 
+    /// <summary>DI 使用的构造函数: 设置目录固定为 %LOCALAPPDATA%\SmartEdgeHMI</summary>
     public SettingsService(IConfiguration configuration)
+        : this(configuration, Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartEdgeHMI"))
+    {
+    }
+
+    /// <summary>测试用构造函数: 允许指定设置目录, 便于在临时目录中验证首启行为</summary>
+    internal SettingsService(IConfiguration configuration, string settingsDirectory)
     {
         _configuration = configuration;
-        string appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartEdgeHMI");
-        Directory.CreateDirectory(appDataDir);
-        _filePath = Path.Combine(appDataDir, "settings.json");
+        _settingsDirectory = settingsDirectory;
+        _filePath = Path.Combine(settingsDirectory, "settings.json");
         LoadSettings();
     }
 
@@ -34,8 +41,29 @@ public class SettingsService : ISettingsService
         {
             Log.Information("设置文件不存在, 从 appsettings.json 加载默认值: {Path}", _filePath);
             ApplyDefaultsFromConfiguration();
-            string defaultJson = JsonSerializer.Serialize(_currentSettings, _saveOptions);
-            File.WriteAllText(_filePath, defaultJson);
+
+            // 首启落盘 fail-soft: 目录建不出来或写盘失败时只记 Warning, 继续使用内存默认值, 不中断启动;
+            // 本次运行中在界面上修改设置时的保存仍会失败, 由调用方现有 catch 记日志。
+            try
+            {
+                Directory.CreateDirectory(_settingsDirectory);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "创建设置目录失败, 本次运行将继续使用内存默认值: {Path}", _settingsDirectory);
+                return;
+            }
+
+            try
+            {
+                string defaultJson = JsonSerializer.Serialize(_currentSettings, _saveOptions);
+                File.WriteAllText(_filePath, defaultJson);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "首次写入设置文件失败, 本次运行将继续使用内存默认值: {Path}", _filePath);
+            }
+
             return;
         }
 
@@ -91,9 +119,6 @@ public class SettingsService : ISettingsService
         var hmiEngine = _configuration.GetSection("HmiEngine");
         if (int.TryParse(hmiEngine["MaxLogEntries"], out int maxLog))
             _currentSettings.Logging.MaxLogEntries = maxLog;
-
-        var device = _configuration.GetSection("Device");
-        _currentSettings.Connection.ComPort = device["DefaultName"] ?? "Sensor_01";
     }
 
     /// <summary>异步保存当前设置到本地 JSON 文件(原子写入: 先写 .tmp 再 rename)</summary>

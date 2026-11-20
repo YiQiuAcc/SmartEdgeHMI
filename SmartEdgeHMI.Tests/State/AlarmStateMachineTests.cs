@@ -8,13 +8,36 @@ using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.Tests.State;
 
-public class AlarmStateMachineTests
+public class AlarmStateMachineTests : IDisposable
 {
-    private static AlarmStateMachine CreateMachine()
+    // 每个测试方法创建的临时设置目录, Dispose 时统一清理
+    private readonly List<string> _tempDirectories = [];
+
+    private AlarmStateMachine CreateMachine()
     {
+        // 使用临时目录重载, 避免测试写真实的 %LOCALAPPDATA%\SmartEdgeHMI\settings.json
+        string settingsDirectory = Path.Combine(
+            Path.GetTempPath(), "SmartEdgeHMI.Tests", Guid.NewGuid().ToString("N"));
+        _tempDirectories.Add(settingsDirectory);
+
         var config = new ConfigurationBuilder().Build();
-        var settingsService = new SettingsService(config);
+        var settingsService = new SettingsService(config, settingsDirectory);
         return new AlarmStateMachine(settingsService);
+    }
+
+    public void Dispose()
+    {
+        foreach (string directory in _tempDirectories)
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (Exception)
+            {
+                // 清理失败不影响测试结果
+            }
+        }
     }
 
     #region 基础功能测试

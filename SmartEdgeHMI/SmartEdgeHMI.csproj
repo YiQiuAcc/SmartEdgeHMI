@@ -30,4 +30,8 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="SmartEdgeHMI.Tests" />
+  </ItemGroup>
+
 </Project>
