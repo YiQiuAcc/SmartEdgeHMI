@@ -39,9 +39,9 @@ public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMa
         {
             lock (_syncRoot)
             {
-                return [.. _activeAlarms.Values
-                    .Where(c => c.Record.State != AlarmState.NORMAL)
-                    .Select(c => c.Record)];
+                // 字典里保留的记录都视为待处理: 事件窗口内刚转为 NORMAL 的记录也要能被取到,
+                // 供 MonitorViewModel 把最终态(含 ClearedAt)同步进数据库; 事件返回后由 NotifyStatesChanged 移除
+                return [.. _activeAlarms.Values.Select(c => c.Record)];
             }
         }
     }
@@ -106,11 +106,30 @@ public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMa
             case AlarmState.ACK:
                 ctx.Record.State = AlarmState.NORMAL;
                 ctx.Record.ClearedAt = DateTime.Now;
-                _activeAlarms.Remove(deviceId);
                 Log.Information("[ISA-18.2] {Device} 完全恢复 ACK→NORMAL", deviceId);
                 break;
         }
-        AlarmStatesChanged?.Invoke();
+        NotifyStatesChanged();
+    }
+
+    /// <summary>触发状态变化事件, 事件返回后再把已完全恢复(NORMAL)的记录移出活动表: 事件处理期间(如数据库同步)必须仍能取到带最终状态的记录, handler 抛异常时也保证移除</summary>
+    private void NotifyStatesChanged()
+    {
+        try
+        {
+            AlarmStatesChanged?.Invoke();
+        }
+        finally
+        {
+            lock (_syncRoot)
+            {
+                var settled = _activeAlarms
+                    .Where(kv => kv.Value.Record.State == AlarmState.NORMAL)
+                    .Select(kv => kv.Key).ToList();
+                foreach (string key in settled)
+                    _activeAlarms.Remove(key);
+            }
+        }
     }
 
     public void Acknowledge(string deviceId)
@@ -120,7 +139,7 @@ public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMa
             if (!_activeAlarms.TryGetValue(deviceId, out var ctx)) return;
             ApplyAck(deviceId, ctx);
         }
-        AlarmStatesChanged?.Invoke();
+        NotifyStatesChanged();
     }
 
     public void AcknowledgeAll()
@@ -135,15 +154,9 @@ public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMa
                 if (ctx.Record.State is AlarmState.UNACK or AlarmState.RTN_UNACK)
                     ApplyAck(key, ctx);
             }
-
-            var removed = _activeAlarms
-                .Where(kv => kv.Value.Record.State == AlarmState.NORMAL)
-                .Select(kv => kv.Key).ToList();
-            foreach (string? key in removed)
-                _activeAlarms.Remove(key);
         }
         Log.Information("[ISA-18.2] 一键确认完成: 处理 {Count} 条报警", count);
-        AlarmStatesChanged?.Invoke();
+        NotifyStatesChanged();
     }
 
     private static void ApplyAck(string deviceId, AlarmContext ctx)

@@ -415,6 +415,107 @@ public class AlarmStateMachineTests : IDisposable
 
     #endregion 边缘场景测试
 
+    #region 报警恢复态落库回归测试
+
+    /// <summary>ACK 恢复转 NORMAL 时, 事件处理期间 PendingAlarms 仍应取到该记录(否则数据库永远停在 ACK), 事件返回后再移出活动表</summary>
+    [Fact]
+    public void 恢复时_事件触发期间NORMAL记录仍可见_事件后从活动列表移除()
+    {
+        var machine = CreateMachine();
+        List<AlarmRecord>? snapshotDuringEvent = null;
+        int eventCount = 0;
+        machine.AlarmStatesChanged += () =>
+        {
+            eventCount++;
+            if (eventCount == 3) // 第 3 次: 第 3 条正常遥测触发的恢复事件
+            {
+                snapshotDuringEvent = [.. machine.PendingAlarms];
+            }
+        };
+
+        var alarm = machine.Evaluate(CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded));
+        Assert.NotNull(alarm);
+        machine.Acknowledge(alarm.DeviceId);
+
+        // 连续 3 条正常数据, 达到防抖阈值 (RecoveryDebounceCount = 3), 第 3 条触发 ACK → NORMAL
+        var normalPayload = CreateNormalPayload("Sensor_01");
+        for (int i = 0; i < 3; i++)
+        {
+            machine.Evaluate(normalPayload);
+        }
+
+        // 事件处理期间: NORMAL 记录(带 ClearedAt)必须仍能被 PendingAlarms 取到
+        Assert.NotNull(snapshotDuringEvent);
+        var normal = Assert.Single(snapshotDuringEvent);
+        Assert.Equal(AlarmState.NORMAL, normal.State);
+        Assert.NotNull(normal.ClearedAt);
+
+        // 事件返回后: 记录已从活动列表移除
+        Assert.Empty(machine.PendingAlarms);
+        Assert.Empty(machine.ActiveAlarms);
+    }
+
+    /// <summary>一键确认把 RTN_UNACK 转成 NORMAL 时, 事件处理期间 PendingAlarms 同样应取到该记录</summary>
+    [Fact]
+    public void 一键确认_RTN_UNACK转NORMAL_事件期间同样可见()
+    {
+        var machine = CreateMachine();
+        List<AlarmRecord>? snapshotDuringEvent = null;
+        int eventCount = 0;
+        machine.AlarmStatesChanged += () =>
+        {
+            eventCount++;
+            if (eventCount == 3) // 第 3 次: 一键确认触发的事件
+            {
+                snapshotDuringEvent = [.. machine.PendingAlarms];
+            }
+        };
+
+        machine.Evaluate(CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded));
+
+        // 连续 3 条正常数据: UNACK → RTN_UNACK
+        var normalPayload = CreateNormalPayload("Sensor_01");
+        for (int i = 0; i < 3; i++)
+        {
+            machine.Evaluate(normalPayload);
+        }
+
+        machine.AcknowledgeAll();
+
+        // 事件处理期间: NORMAL 记录必须仍能被 PendingAlarms 取到
+        Assert.NotNull(snapshotDuringEvent);
+        var normal = Assert.Single(snapshotDuringEvent);
+        Assert.Equal(AlarmState.NORMAL, normal.State);
+        Assert.NotNull(normal.ClearedAt);
+
+        // 事件返回后: 记录已从活动列表移除
+        Assert.Empty(machine.PendingAlarms);
+        Assert.Empty(machine.ActiveAlarms);
+    }
+
+    /// <summary>一键确认对已确认(ACK)的记录无副作用: 不产生新的 AcknowledgedAt</summary>
+    [Fact]
+    public void 一键确认_已确认记录_不产生新的确认时间()
+    {
+        var machine = CreateMachine();
+        var alarm = machine.Evaluate(CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded));
+        Assert.NotNull(alarm);
+
+        machine.Acknowledge(alarm.DeviceId);
+        var ackedAtBefore = machine.PendingAlarms[0].AcknowledgedAt;
+        Assert.NotNull(ackedAtBefore);
+
+        System.Threading.Thread.Sleep(20); // 留出时间差, 若被重复确认则 AcknowledgedAt 必然变化
+        machine.AcknowledgeAll();
+
+        var pending = machine.PendingAlarms;
+        var acked = Assert.Single(pending);
+        Assert.Equal(AlarmState.ACK, acked.State);
+        Assert.Equal(ackedAtBefore, acked.AcknowledgedAt);
+    }
+
+    #endregion 报警恢复态落库回归测试
+
     #region 工具方法
 
     private static TelemetryPayload CreateNormalPayload(string deviceId)
