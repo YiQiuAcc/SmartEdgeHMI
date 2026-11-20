@@ -340,7 +340,7 @@ SmartEdgeHMI/                    # 主应用：入口、DI 容器、全局配置
 └── SmartEdgeHMI.csproj          # .NET 8 WPF 项目文件
 
 SmartEdgeHMI.Watchdog/           # 独立 Watchdog 守护进程（命名管道、进程监控/重启）
-SmartEdgeHMI.Tests/              # 单元测试（48 个：状态机 17 + JSON 解析 8 + Modbus 解析 11 + CRC 表 3 + 串口传输 1 + LTTB 降采样 5 + Task 工具 1 + SQLite 数据层 2）
+SmartEdgeHMI.Tests/              # 单元测试（92 个：状态机 20 + 报警仓储 14 + Modbus 11 + JSON 8 + 保留服务 8 + 校验器 6 + 遥测仓储 6 + 日志 VM 5 + LTTB 5 + CRC 3 + 设置目录 2 + 连接工厂 2 + 串口 1 + Task 工具 1）
 Firmware/                        # ESP8266 真实硬件固件 (PlatformIO)
 └── src/                         # 固件源码（WiFi 网页仪表盘 + Modbus RTU 从站）
 Simulator/                       # Node.js 虚拟设备模拟器（JSON / Modbus 双模）
@@ -378,7 +378,7 @@ dotnet run --project SmartEdgeHMI/SmartEdgeHMI.csproj
 
 ```bash
 dotnet test SmartEdgeHMI.Tests/SmartEdgeHMI.Tests.csproj
-# 期望：87 passed，0 failed（2026-11-17 Release 实测口径）
+# 期望：92 passed，0 failed（2026-11-21 Release 实测口径）
 ```
 
 ### 烧录固件 (可选)
@@ -409,7 +409,7 @@ pio run --target upload
 | 进程守护   | System.IO.Pipes（NamedPipeServerStream）                      |
 | 配置       | Microsoft.Extensions.Configuration（JSON + 强类型绑定）       |
 | 数据管道   | System.IO.Pipelines（流式解析 + 缓冲复用）                    |
-| 单元测试   | xUnit v3（48 tests，覆盖状态机/协议/CRC/串口传输/LTTB 降采样/SQLite 数据层）|
+| 单元测试   | xUnit v3（92 tests，覆盖状态机/协议/CRC/串口传输/LTTB 降采样/SQLite 数据层）|
 | 硬件固件   | PlatformIO + ESP8266（Arduino框架）                           |
 | 设备模拟器 | Node.js + serialport + modbus-serial                          |
 
@@ -420,7 +420,7 @@ pio run --target upload
 | 证据 | 状态与口径 | 链接 |
 | --- | --- | --- |
 | CI 门禁 | restore → build(Release) → test → format 四步（windows-latest）；workflow 已就绪，运行结果以徽章为准 | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| 单元测试 | 87 通过 / 0 失败（2026-11-17，`dotnet test -c Release` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
+| 单元测试 | 92 通过 / 0 失败（2026-11-21，`dotnet test -c Release` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
 | format 门禁 | `dotnet format --verify-no-changes` 退出码 0（2026-11-17 实测） | 同 CI 第 4 步 |
 | 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 14.8 万行/秒；查询下推后报警历史 118 µs、报警上下文 1.1 ms、趋势 20 万行分配 0.75 MB | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
 | 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）：根因 / 修复 / 防复发约定 | [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) |
