@@ -290,6 +290,14 @@ Node.js 双模模拟器，无需硬件即可验证全链路功能：
 | JSON 模式   | `pnpm run sim:json`   | 主动上报 JSON-Lines 数据，1 次/秒     |
 | Modbus 模式 | `pnpm run sim:modbus` | 一问一答 Modbus RTU，模拟真实设备应答 |
 
+**故障注入（报警链路 E2E）**：附加 `--fault-window <开始秒> <持续秒>` 与可选 `--fault-code <错误码>`（默认 302）后，模拟器按时间确定地进入/退出故障态——窗口期内 JSON 报文强制 `"status": 4` 并附加 `err_code`，Modbus 寄存器 2/3 同步返回故障值，进入/退出各打印一行 `[FAULT]` 日志，用于上位机报警触发/确认链路的端到端验证：
+
+```
+pnpm run sim:fault    # 等价于 node virtual-device.js json COM2 115200 --fault-window 10 8
+```
+
+不传 `--fault-window` 时行为与原来完全一致。
+
 ---
 
 ## 项目结构
