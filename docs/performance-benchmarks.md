@@ -116,7 +116,7 @@
 - **磁盘耐久性**：WAL checkpoint 频率、SSD 写放大与寿命影响未测。
 - **`synchronous=FULL` 下的写入吞吐**：见 §6 第 4 条——已由 TASK-005 修复：连接工厂对每个新连接设置 `synchronous=NORMAL`，修复后应用口径与本基准一致；当前代码已是 NORMAL。修复前应用新连接运行在默认 FULL 模式，该模式吞吐未测（保留作为历史口径）。
 - **协议解析吞吐**（JSON-Lines / Modbus RTU）、**报警直写路径**、**Watchdog 心跳延迟**均未测。
-- **.NET 8 运行时数字**：查询三组已在 .NET 8.0.34 复测（见 §8.5），结论与 .NET 11 口径一致；LTTB 与 SQLite 写入两组仍只有 .NET 11 口径（见 §2 注 1）。
+- **.NET 8 运行时数字**：查询三组已在 .NET 8.0.34 复测（见 §8.5），结论与 .NET 11 口径一致；LTTB 与 SQLite 写入两组也已在 .NET 8 复测（见 §8.6），结论同样与 .NET 11 口径一致。
 - **查询基准的规模上界**：§8 的对照数据为 20 万行遥测、5000 行报警。30 天满负荷（1 Hz，约 260 万行）下三种查询的耗时未实测；已知趋势查询耗时随行数线性增长、内存保持 KB 级，报警上下文受"报警条数 × 窗口行数"约束。
 - **数据保留策略的长期收敛**：TASK-104 的清理逻辑只做了单轮单元测试（含 1.2 万行分批），"连续运行 24 小时后库文件是否稳定"未实测。
 
@@ -214,6 +214,56 @@ Host 与 Job 均为 `.NET 8.0.34 (8.0.34, 8.0.3426.52217), X64 RyuJIT x86-64-v3`
 与 .NET 11 口径（§8.3）逐行比较：绝对耗时差异都在运行间噪声内，收益量级与结论完全一致——**数字可跨运行时复现**，不是某版运行时的偶然结果。
 
 > 注意：`DOTNET_ROLL_FORWARD=Disable` 会因本机只装了 8.0.34（不是 8.0.0）而启动失败，必须用 `LatestPatch`。
+
+### 8.6 LTTB 与 SQLite 写入的 .NET 8 口径（TASK-119 实测）
+
+§2 注 1 与 §5 遗留的缺口——LTTB 降采样与 SQLite 写入两组此前只有 .NET 11 口径——已于 2026-11-21 在目标运行时补测。在同一 shell 里覆盖本机用户级的 `DOTNET_ROLL_FORWARD=LatestMajor`（`Disable` 会启动失败，见 §8.5 末尾注意），实际执行：
+
+```bash
+DOTNET_ROLL_FORWARD=LatestPatch dotnet run -c Release --project SmartEdgeHMI.Benchmarks/SmartEdgeHMI.Benchmarks.csproj -- --filter '*LttbDownsample*' '*SqliteInsert*'
+```
+
+BDN 汇总头（Host 行原文，控制台日志 `BenchmarkDotNet.Artifacts/bench-TASK119.log` 与 results 报告头部一致）：
+
+```
+BenchmarkDotNet v0.16.0-preview.2, Windows 11 (10.0.22631.6199/23H2/2023Update/SunValley3)
+12th Gen Intel Core i7-12650H 2.69GHz, 1 CPU, 16 logical and 10 physical cores
+Memory: 15.71 GB Total, 3.41 GB Available
+.NET SDK 11.0.100
+  [Host]     : .NET 8.0.34 (8.0.34, 8.0.3426.52217), X64 RyuJIT x86-64-v3
+```
+
+LTTB 组的 job 行为 `DefaultJob : .NET 8.0.34 (8.0.34, 8.0.3426.52217), X64 RyuJIT x86-64-v3`，SQLite 组为 `Job-CNUJVU : .NET 8.0.34 (8.0.34, 8.0.3426.52217), X64 RyuJIT x86-64-v3`；每个基准子进程还逐次打印 `// Runtime=.NET 8.0.34 (8.0.34, 8.0.3426.52217), X64 RyuJIT x86-64-v3`——两组 [Host]/job 行全部是 8.0.34，没有前滚到 .NET 11。
+
+环境与方法说明（如实记录）：
+
+- 机器与 OS 同 §2（TIMI Redmi G 2022 / i7-12650H 10 核 16 逻辑处理器 / 16 GB / Windows 11 23H2 Build 22631），BDN 0.16.0-preview.2，SDK 11.0.100，托管运行时 **.NET 8.0.34**。
+- 本次命令未传 `--job short`：LTTB 组跑 BDN 默认 job（13–15 次实测迭代，CI 很窄）；SQLite 组因单次操作 >100 ms，BDN 自动派生 `InvocationCount=1, UnrollFactor=1` 的 job（N=32/87/100），与 TASK-107 的 .NET 11 写入复测（§9）同一 job 形态，两侧方法一致可比。
+- **本次复测期间本机有一个 24 小时连续运行观察进程在跑（空闲，约 1% CPU），未清场**；SQLite batch=1 的 StdDev（±21 ms，.NET 11 口径为 ±6 ms）应在这一背景下解读。
+
+**LTTB 降采样（→1000 点）**，与 §4.1 的 .NET 11 口径逐行对照：
+
+| N | .NET 8.0.34 Mean（CI 99.9%） | .NET 11.0.0 Mean（§4.1，short job） | 差异 | Allocated |
+| ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 182.4 μs（±2.2） | 179.2 μs（±34.5） | +1.8% | 7.87 KB |
+| 100,000 | 1,544.6 μs（±13.9） | 1,615.9 μs（±153.7） | −4.4% | 7.87 KB |
+| 1,000,000 | 14,692.0 μs（±201.1） | 13,814.6 μs（±2,482.0） | +6.4% | 7.87 KB |
+
+换算每点耗时：18.2 / 15.4 / 14.7 ns/点（.NET 11 口径为 17.9 / 16.2 / 13.8）。三档 .NET 8 均值全部落在 .NET 11 口径的置信区间内（其 short job CI 本身很宽），"耗时随输入近似线性"与"恒定 7.87 KB 分配"两个结论在两个运行时上一致。
+
+**SQLite 写入 10,000 行（WAL + synchronous=NORMAL，表含 §9 的 4 个索引）**，与 TASK-107 的 .NET 11 口径（§9）逐行对照：
+
+| 每事务批量行数 | .NET 8.0.34 Mean（CI 99.9%） | 行/秒（换算） | .NET 11.0.0 Mean（§9） | 行/秒（换算） | 差异 | Allocated（.NET 8 / .NET 11） |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1（逐条提交） | 697.08 ms（±13.8） | 14,346 | 673.92 ms | 14,838 | +3.4% | 32.65 / 31.36 MB |
+| 50 | 70.12 ms（±1.4） | 142,621 | 67.58 ms | 147,973 | +3.8% | 9.48 / 9.45 MB |
+| 500 | 38.04 ms（±1.5） | 262,880 | 37.67 ms | 265,462 | +1.0% | 9.05 / 9.05 MB |
+
+相对倍数一致：50 条/批 9.94×（.NET 11：9.97×），500 条/批 18.3×（.NET 11：17.9×）。
+
+结论：两组在两个运行时上的耗时差异为 LTTB −4.4% ~ +6.4%、SQLite +1.0% ~ +3.8%，均远小于 20% 的"明显差异"阈值——其中 SQLite batch=1/50 呈约 +3~4% 的小幅一致偏移（99.9% CI 刚好不重叠，属运行间噪声与机器状态波动量级，见上方环境说明），其余对照的差异均落在对方口径的置信区间内。**README 公开引用的数字属于 .NET 11 口径，且在 .NET 8 目标运行时上同样成立**：50 条/批 .NET 8 口径约 14.3 万行/秒 vs README 的约 14.8 万行/秒（−3.6%），LTTB 1M 档 14.7 ms vs 13.8 ms（+6.4%），无 >20% 冲突。
+
+产物：本次 .NET 8 报告已覆盖写入 `BenchmarkDotNet.Artifacts/results/SmartEdgeHMI.Benchmarks.{LttbDownsampleBenchmarks,SqliteInsertBenchmarks}-report-{github.md,csv,html}`；被覆盖前的 .NET 11 LTTB 报告已备份为同目录 `lttb-TASK119-net11.md` / `lttb-TASK119-net11.csv`（SQLite 的 .NET 11 报告此前已备份为 `insert-TASK107-net11.md`）；完整控制台日志 `BenchmarkDotNet.Artifacts/bench-TASK119.log`。
 
 ## 9. 复合索引的写放大（TASK-107 实测）
 

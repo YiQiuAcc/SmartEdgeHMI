@@ -45,7 +45,7 @@
     <td align="center"><img src="docs/assets/isa18-alarm-state-machine.gif" width="400" alt="ISA-18.2 状态机"/></td>
   </tr>
   <tr>
-    <td><b>突破性能瓶颈</b>：针对海量历史趋势，底层采用 LTTB 算法，将百万级采样点压缩至千点级（100 万点 → 1000 点单次实测 13.8 ms / 分配 7.87 KB，i7-12650H · Windows 11 · 基准运行于 .NET 11 运行时（产品目标框架 net8.0，见性能基准确认项），见<a href="docs/performance-benchmarks.md">性能基准</a>）；端到端渲染帧率未实测。</td>
+    <td><b>突破性能瓶颈</b>：针对海量历史趋势，底层采用 LTTB 算法，将百万级采样点压缩至千点级（100 万点 → 1000 点单次实测 13.8 ms / 分配 7.87 KB，i7-12650H · Windows 11 · .NET 11 运行时；产品目标框架为 net8.0，LTTB 与 SQLite 写入两组已在 .NET 8.0.34 复测，差异 <7%，见<a href="docs/performance-benchmarks.md">性能基准</a>）；端到端渲染帧率未实测。</td>
     <td><b>工业级报警模型</b>：严格遵循 ISA-18.2 国际标准，实现"未确认/已确认/恢复"的完整闭环，并由独立线程安全分发至 UI。</td>
   </tr>
   <tr>
