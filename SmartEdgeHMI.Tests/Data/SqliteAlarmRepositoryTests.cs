@@ -430,6 +430,235 @@ public class SqliteAlarmRepositoryTests
         }
     }
 
+    #region 写入侧测试 (SaveAlarmRecordAsync / UpdateAlarmStatesAsync)
+
+    /// <summary>SaveAlarmRecordAsync 返回自增 ID 且 > 0, 连续保存两条 ID 严格递增</summary>
+    [Fact]
+    public async Task SaveAlarmRecordAsync_连续保存两条_返回自增ID且严格递增()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+
+            long firstId = await repo.SaveAlarmRecordAsync(new AlarmRecord
+            {
+                DeviceId = DeviceA,
+                Timestamp = _baseTime,
+                AlarmCode = AlarmHigh,
+                TriggerValue = 1
+            });
+            long secondId = await repo.SaveAlarmRecordAsync(new AlarmRecord
+            {
+                DeviceId = DeviceB,
+                Timestamp = _baseTime.AddMinutes(1),
+                AlarmCode = AlarmLow,
+                TriggerValue = 2
+            });
+
+            Assert.True(firstId > 0, $"首条自增 ID 应 > 0, 实际 {firstId}");
+            Assert.Equal(firstId + 1, secondId);
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    /// <summary>保存后按 Id 读回: DeviceId/AlarmCode/TriggerValue/QualityCode/State/Timestamp 与写入一致;
+    /// Timestamp 列为 TEXT, 断言用整秒固定时间, 即现有表结构与查询接口能完整取回的精度</summary>
+    [Fact]
+    public async Task SaveAlarmRecordAsync_按Id读回_字段与写入一致()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+            var written = new AlarmRecord
+            {
+                DeviceId = DeviceA,
+                Timestamp = _baseTime.AddMinutes(3),
+                AlarmCode = AlarmHigh,
+                TriggerValue = 42.5,
+                QualityCode = DataQuality.Uncertain,
+                State = AlarmState.UNACK
+            };
+
+            long id = await repo.SaveAlarmRecordAsync(written);
+
+            Assert.True(id > 0);
+            var history = await repo.GetAlarmHistoryAsync();
+            var read = Assert.Single(history, r => r.Id == id);
+
+            Assert.Equal(written.DeviceId, read.DeviceId);
+            Assert.Equal(written.Timestamp, read.Timestamp);
+            Assert.Equal(written.AlarmCode, read.AlarmCode);
+            Assert.Equal(written.TriggerValue, read.TriggerValue);
+            Assert.Equal(written.QualityCode, read.QualityCode);
+            Assert.Equal(written.State, read.State);
+            // SaveAlarmRecordAsync 只写六列基础字段, 确认/恢复时间读回应为空
+            Assert.Null(read.AcknowledgedAt);
+            Assert.Null(read.ClearedAt);
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    /// <summary>UpdateAlarmStatesAsync 单条 ACK: 状态与确认时间落库, 重新查询读回一致, 且不清空 ClearedAt 之外的列</summary>
+    [Fact]
+    public async Task UpdateAlarmStatesAsync_单条确认_状态与确认时间读回一致()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+            long id = await repo.SaveAlarmRecordAsync(
+                new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh, TriggerValue = 10 });
+
+            DateTime acknowledgedAt = _baseTime.AddMinutes(1);
+            await repo.UpdateAlarmStatesAsync(
+                [new AlarmRecord { Id = id, State = AlarmState.ACK, AcknowledgedAt = acknowledgedAt }]);
+
+            var read = Assert.Single(await repo.GetAlarmHistoryAsync(), r => r.Id == id);
+
+            Assert.Equal(AlarmState.ACK, read.State);
+            Assert.NotNull(read.AcknowledgedAt);
+            Assert.Equal(acknowledgedAt, read.AcknowledgedAt);
+            Assert.Null(read.ClearedAt);
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    /// <summary>UpdateAlarmStatesAsync 批量三条(UNACK/ACK/NORMAL): 三条全部落到各自状态, 互不串行、互不清空;
+    /// 更新对象只带 Id 与三个状态列, 顺带锁死 UPDATE 语句只改 State/AcknowledgedAt/ClearedAt 的契约</summary>
+    [Fact]
+    public async Task UpdateAlarmStatesAsync_批量三条_各自落到对应状态互不串扰()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+            long idUnack = await repo.SaveAlarmRecordAsync(
+                new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh, TriggerValue = 1 });
+            long idAck = await repo.SaveAlarmRecordAsync(
+                new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime.AddMinutes(1), AlarmCode = AlarmHigh, TriggerValue = 2 });
+            long idNormal = await repo.SaveAlarmRecordAsync(
+                new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime.AddMinutes(2), AlarmCode = AlarmHigh, TriggerValue = 3 });
+
+            DateTime acknowledgedAt = _baseTime.AddMinutes(10);
+            DateTime clearedAt = _baseTime.AddMinutes(11);
+            await repo.UpdateAlarmStatesAsync(
+            [
+                new AlarmRecord { Id = idUnack, State = AlarmState.UNACK, AcknowledgedAt = null, ClearedAt = null },
+                new AlarmRecord { Id = idAck, State = AlarmState.ACK, AcknowledgedAt = acknowledgedAt, ClearedAt = null },
+                new AlarmRecord { Id = idNormal, State = AlarmState.NORMAL, AcknowledgedAt = acknowledgedAt, ClearedAt = clearedAt }
+            ]);
+
+            var history = await repo.GetAlarmHistoryAsync();
+
+            var unack = Assert.Single(history, r => r.Id == idUnack);
+            Assert.Equal(AlarmState.UNACK, unack.State);
+            Assert.Null(unack.AcknowledgedAt);   // 其它行的确认时间不得串到本行
+            Assert.Null(unack.ClearedAt);        // 其它行的恢复时间不得串到本行
+
+            var ack = Assert.Single(history, r => r.Id == idAck);
+            Assert.Equal(AlarmState.ACK, ack.State);
+            Assert.Equal(acknowledgedAt, ack.AcknowledgedAt);
+            Assert.Null(ack.ClearedAt);          // 确认操作不得顺手清空/填入恢复时间
+
+            var normal = Assert.Single(history, r => r.Id == idNormal);
+            Assert.Equal(AlarmState.NORMAL, normal.State);
+            Assert.Equal(acknowledgedAt, normal.AcknowledgedAt); // 转入 NORMAL 不得清空已有确认时间
+            Assert.Equal(clearedAt, normal.ClearedAt);
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    /// <summary>3ab7619 的直接回归锁: 把记录更新为 NORMAL 且 ClearedAt 有值, 重新查询必须读到 State == NORMAL 且 ClearedAt != null,
+    /// 缺陷形态是"日志已打印完全恢复 ACK→NORMAL, 库里那条仍停在 ACK 且 ClearedAt IS NULL"</summary>
+    [Fact]
+    public async Task UpdateAlarmStatesAsync_更新为NORMAL且ClearedAt有值_重新查询必须读到最终态()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+            long id = await repo.SaveAlarmRecordAsync(
+                new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh, TriggerValue = 10 });
+
+            DateTime acknowledgedAt = _baseTime.AddMinutes(1);
+            DateTime clearedAt = _baseTime.AddMinutes(2);
+            await repo.UpdateAlarmStatesAsync(
+                [new AlarmRecord { Id = id, State = AlarmState.NORMAL, AcknowledgedAt = acknowledgedAt, ClearedAt = clearedAt }]);
+
+            var read = Assert.Single(await repo.GetAlarmHistoryAsync(), r => r.Id == id);
+
+            Assert.Equal(AlarmState.NORMAL, read.State);
+            Assert.NotNull(read.ClearedAt);
+            Assert.Equal(clearedAt, read.ClearedAt);
+            Assert.Equal(acknowledgedAt, read.AcknowledgedAt);
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    /// <summary>更新不存在的记录(Id 不在库里的对象)不抛异常, 且库内已有行的状态不受影响</summary>
+    [Fact]
+    public async Task UpdateAlarmStatesAsync_更新不存在的记录_不抛异常且不影响其它行()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"SmartEdgeHMI_Test_{Guid.NewGuid():N}.db");
+
+        try
+        {
+            var repo = await CreateRepositoryAsync(dbPath);
+            long firstId = await repo.SaveAlarmRecordAsync(
+                new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh, TriggerValue = 1 });
+            long secondId = await repo.SaveAlarmRecordAsync(
+                new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime.AddMinutes(1), AlarmCode = AlarmHigh, TriggerValue = 2 });
+
+            DateTime touchedAt = _baseTime.AddMinutes(9);
+            var exception = await Record.ExceptionAsync(() => repo.UpdateAlarmStatesAsync(
+            [
+                new AlarmRecord { Id = 0, State = AlarmState.ACK, AcknowledgedAt = touchedAt, ClearedAt = touchedAt },       // 未保存过的对象
+                new AlarmRecord { Id = 9999, State = AlarmState.NORMAL, AcknowledgedAt = touchedAt, ClearedAt = touchedAt }  // 库里不存在的自增 ID
+            ]));
+
+            Assert.Null(exception);
+
+            var history = await repo.GetAlarmHistoryAsync();
+            var first = Assert.Single(history, r => r.Id == firstId);
+            Assert.Equal(AlarmState.UNACK, first.State);
+            Assert.Null(first.AcknowledgedAt);
+            Assert.Null(first.ClearedAt);
+
+            var second = Assert.Single(history, r => r.Id == secondId);
+            Assert.Equal(AlarmState.UNACK, second.State);
+            Assert.Null(second.AcknowledgedAt);
+            Assert.Null(second.ClearedAt);
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    #endregion 写入侧测试 (SaveAlarmRecordAsync / UpdateAlarmStatesAsync)
+
     /// <summary>按临时文件库构造仓储: in-memory 配置 + 建库, QueryLimit 显式设为 10。</summary>
     private static async Task<SqliteAlarmRepository> CreateRepositoryAsync(string dbPath)
     {
