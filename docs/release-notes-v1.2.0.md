@@ -1,8 +1,8 @@
 # SmartEdgeHMI v1.2.0 发布说明
 
 > 版本 1.2.0 ｜ 日期 2026-11-21 ｜ 目标框架 .NET 8 (win-x64, self-contained)
-> 状态：**候选包已重建（`fb69bbe`），未发布**（阻塞项见「已知问题」）
-> 旧候选包（`ae10336` / `99e8a5e9…`）与其结论作废。
+> 状态：**候选包已重建（`f8b3997`），未发布**（阻塞项见「已知问题」）
+> 旧候选包（`fb69bbe` / `24fa4004…b168`；更早 `ae10336` / `99e8a5e9…`）与其结论作废。
 
 ## 1. 摘要
 
@@ -51,11 +51,12 @@
 
 1. **真实硬件验收未执行**：无 ESP8266 / USB 串口芯片，[hardware-validation.md](hardware-validation.md) 测试矩阵六项仍为「未执行」，电气噪声 / 断帧 / 拔插等真实设备路径完全未验证。
 2. **无开发环境机器未验证**：解压启动仅在本机验证；无 .NET / 开发环境的 Windows 干净机验收未执行。
-3. **回滚与数据库冷备份未演练**：[release-checklist.md §9](release-checklist.md) 四项均未执行，首次回滚须人工执行并核对数据条数。
-4. **24 小时连续观察进行中**：2026-11-21 00:18 起运行，尚未结束、结论未出（起点数据见 [release-checklist.md §12](release-checklist.md) 第二轮记录）。
-5. **`v1.1.0` tag 不可编译**（`WatchdogHeartbeatClient.cs(41,64)` CS0103：`_settingsService` 不存在）：本候选包由 `main` 的 `fb69bbe` 构建；v1.1.0 发布包来源与该 tag 不一致，需追溯。
-6. **本机未签名 exe 写 `%LOCALAPPDATA%` 被拦截**（环境限制，非产品缺陷）：未签名 exe 写 `%LOCALAPPDATA%` 被本机安全软件拦截（与上一轮结论一致）；同一台机器上从 `bin\Release` 运行可写、解压到 `Agent\projects` 的发布包运行被拒，原因未查明，需在干净机复验。日志出现 `[ERR] 保存通信设置失败` / `[ERR] 设备连接后自动下发阈值配置失败`（`settings.json.tmp` 写入被拒）；启动、串口连接与数据入库不受影响。
-7. **趋势查询耗时与旧实现持平**：收益仅在内存分配（-99.1%）与长期稳定性，不存在"提速"（沿用 2026-11-17 基准结论）。
+3. **`v1.1.0` tag 不可编译**（`WatchdogHeartbeatClient.cs(41,64)` CS0103：`_settingsService` 不存在）：本候选包由 `main` 的 `f8b3997` 构建；v1.1.0 发布包来源已追溯（[traceability-v1.1.0.md](traceability-v1.1.0.md)：由带未提交改动的标签工作区构建，实际构建树无法复原）。
+4. **本机未签名 exe 写 `%LOCALAPPDATA%` 被拦截**（环境限制，非产品缺陷）：未签名 exe 写 `%LOCALAPPDATA%` 被本机安全软件拦截（与上一轮结论一致）；同一台机器上从 `bin\Release` 运行可写、解压到 `Agent\projects` 的发布包运行被拒，原因未查明，需在干净机复验。日志出现 `[ERR] 保存通信设置失败` / `[ERR] 设备连接后自动下发阈值配置失败`（`settings.json.tmp` 写入被拒）；启动、串口连接与数据入库不受影响。
+5. **趋势查询耗时与旧实现持平**：收益仅在内存分配（-99.1%）与长期稳定性，不存在"提速"（沿用 2026-11-17 基准结论）。
+6. **升级会按 30 天保留策略清理旧遥测**：升级后首次启动，数据保留任务会删除超过保留期（默认 30 天）的旧遥测。升级 / 回滚演练实测：v1.1.0 库中 60 行 2026-06-29 的遥测在升级到 1.2.0 后首次启动即被判为超期清理（报警按 `AlarmRetentionDays=0` 保留）。这是**策略行为，不是数据丢失**；如需保留旧遥测，请在升级前备份或调整保留配置（见 §6）。
+7. **`WatchdogHeartbeatClient.Dispose()` 不幂等**：重复调用会抛 `ObjectDisposedException`；当前仅在退出时调用一次，正常运行不受影响，计划 v1.2.1 修复。
+8. **心跳管道无鉴权**：心跳管道名 `SmartEdgeHMI_Watchdog_Pipe` 为全局命名管道且无鉴权，本机其他进程可占用该名（2026-11-21 观察期即被本机测试活动的假服务端短暂占用，主程序记 10 条心跳 WRN，见 [release-checklist.md §12](release-checklist.md)）。
 
 ## 6. 升级说明
 
@@ -73,32 +74,32 @@
 3. 恢复上一版 zip（v1.1.0 存档于 GitHub Releases）解压覆盖。
 4. 启动并验证连接与数据；必要时恢复步骤 2 之前的备份库。
 
-> 注：本回滚路径**尚未演练**（[release-checklist.md §9](release-checklist.md) 未勾），首次回滚须人工执行并核对数据条数。
+> 注：本回滚路径已于 2026-11-22 在本机演练通过（v1.1.0 真包 ↔ 1.2.0 候选包升级 / 回滚，冷备份与条数核对 `60/1 → 走完 → 60/1`，见 [release-checklist.md §9](release-checklist.md) 及其 §12「2026-11-21/22 24 小时观察与回滚演练」表）。
 
 ## 8. 校验和与产物
 
 | 项 | 值 |
 | --- | --- |
 | 产物 | `dist/SmartEdgeHMI-1.2.0-win-x64.zip` |
-| 大小 | 82,065,781 字节 / 78.26 MB（511 个条目 / 290 个根文件） |
-| SHA256 | `24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` |
-| 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；旧候选包哈希 `99e8a5e9…34a1`（`ae10336`）作废 |
-| 构建来源 | `main` @ `fb69bbe`，`pwsh tools/package.ps1 -Version 1.2.0`（2026-11-21 00:20） |
-| 包内容 | 含 `SmartEdgeHMI.exe`、`SmartEdgeHMI.Watchdog.exe`、`appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h` |
+| 大小 | 82,065,747 字节 / 78.26 MB（新包条目 / 根文件数未逐项复测） |
+| SHA256 | `c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` |
+| 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；旧候选包哈希 `24fa4004…b168`（`fb69bbe`）作废，更早 `99e8a5e9…34a1`（`ae10336`）已作废 |
+| 构建来源 | `main` @ `f8b3997`，`pwsh tools/package.ps1 -Version 1.2.0`（2026-11-22 00:36） |
+| 包内容 | 含 `SmartEdgeHMI.exe`、`SmartEdgeHMI.Watchdog.exe`、`appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h`（旧包实测口径；新包未逐项复测，产品源码与 `fb69bbe` 零差异） |
 
 ## 9. 证据索引
 
 | 证据 | 链接 |
 | --- | --- |
 | 性能数字唯一口径（查询下推 / .NET 8 复测 / 写放大） | [performance-benchmarks.md](performance-benchmarks.md)（§8.3 / §8.5 / §9） |
-| 本机桌面走查记录（第一轮 2026-11-17，启动 / 双开 / Watchdog / 迁移 / 保留清理；第二轮 2026-11-20/21，首启 / 日志 / 报警 E2E / 24h 观察起点） | [release-checklist.md §12](release-checklist.md) |
-| 24 小时连续观察 | **进行中，未出结论**（本机采样记录，未入库） |
+| 本机桌面走查记录（第一轮 2026-11-17，启动 / 双开 / Watchdog / 迁移 / 保留清理；第二轮 2026-11-20/21，首启 / 日志 / 报警 E2E / 24h 观察起点；第三轮 2026-11-21/22，24 小时观察与升级 / 回滚演练） | [release-checklist.md §12](release-checklist.md) |
+| 24 小时连续观察 | **已完成，总判定 PASS-WITH-NOTES**（2026-11-22 `analyze-soak.ps1` 判定；唯一「需人工判断」项 = 10 条心跳 WRN，系测试活动污染日志基线；`soak.csv` 在本机 `soak-data\`，不入库） |
 | 项目现状、发布阻塞项与下一步计划 | [next-steps-v1.2.md §2 / §4](next-steps-v1.2.md) |
 | 硬件验收状态（六项均未执行） | [hardware-validation.md](hardware-validation.md) |
 | 数据保留策略说明 | [data-retention.md](data-retention.md) |
 | 串口 CTS 竞态复盘 | [postmortem-serial-dispose.md](postmortem-serial-dispose.md) |
 | 发布检查表（勾选状态与签字） | [release-checklist.md](release-checklist.md) |
-| 构建提交 | `fb69bbe`（候选包构建时的 main HEAD，本轮最后一个代码提交） |
+| 构建提交 | `f8b3997`（候选包构建时的 main HEAD；相对 `fb69bbe` 产品源码零差异，新增仅测试 / 工具 / 文档） |
 | 基准时效依据 | `8dfcb40`（最后一次基准相关提交）之后 `SmartEdgeHMI/Data` 仅 `c4579d0` 新增保留服务，未触及 LTTB 与写入热路径，无需重跑基准 |
 | 旧库生成提交（v1.1.0 tag 不可编译，改用同 schema 旧库） | `3cb8a00` |
 | 串口修复提交 | `30390aa` |
