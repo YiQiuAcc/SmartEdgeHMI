@@ -143,7 +143,7 @@ try:
         row = con.execute('PRAGMA journal_mode').fetchone()
         if row is not None:
             info['journalMode'] = row[0]
-        for key, table in (('telemetryRows', 'TelemetryHistory'), ('alarmRows', 'AlarmRecords')):
+        for key, table in (('telemetryRows', 'TelemetryHistory'), ('alarmRows', 'AlarmHistory')):
             try:
                 info[key] = con.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0]
             except Exception:
