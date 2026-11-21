@@ -5,7 +5,7 @@
     SmartEdgeHMI 用户数据恢复工具（配合 tools/backup-data.ps1 产出的 manifest.json 使用）。
 
 .DESCRIPTION
-    先对备份目录做完整性校验（重算每个文件的 SHA256 与 manifest.json 比对），校验通过之前
+    先对备份目录做完整性校验（manifest 文件名白名单 + 重算每个文件的 SHA256 与 manifest.json 比对），校验通过之前
     一个字节都不写；然后把目标发布目录里现有的 SmartEdgeHMI.db / SmartEdgeHMI.db-wal /
     SmartEdgeHMI.db-shm / settings.json（存在的话）整体移到
     <AppDir>\data-before-restore-<yyyyMMdd-HHmmss>\ 保留历史（只移动、绝不删除），
@@ -41,6 +41,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $script:ExitCode = 0
+
+# manifest.json 不是可信输入（备份可能来自 U 盘或另一台机器，可能被手工改过或损坏）：
+# files 记录的 name 只允许出现 backup-data.ps1 备份集里的这四个名字，白名单外（含
+# "..\..\" 这类路径穿越形状）一律退出码 4 拒绝，防止文件被写到 -AppDir 之外。
+$script:AllowedDataFileNames = @('SmartEdgeHMI.db', 'SmartEdgeHMI.db-wal', 'SmartEdgeHMI.db-shm', 'settings.json')
 
 # 携带退出码的受控异常：所有可预期失败都经 Stop-Run 抛出，脚本末尾唯一的 exit 统一翻译退出码。
 class ControlledExitException : System.Exception {
@@ -111,7 +116,25 @@ function Read-BackupManifest {
             Stop-Run -Code 4 -Message 'manifest.json 的 files 记录缺少 name / bytes / sha256 字段，无法校验备份内容，未写入任何数据。'
         }
     }
+    foreach ($entry in $entries) {
+        # 文件名白名单：不在 backup-data.ps1 备份集四个名字之列 → 退出码 4。此检查发生在读任何
+        # 备份文件内容、建 data-before-restore-* 目录、任何拷贝之前（-DryRun 也先过这里，不放行）。
+        $null = Resolve-AllowedFileName -Name ([string]$entry.name)
+    }
     return ,$entries
+}
+
+function Resolve-AllowedFileName {
+    # 白名单校验与拼路径共用：返回 name 对应的白名单常量（Ordinal 精确匹配，区分大小写），
+    # 不在白名单 → 退出码 4，消息写明被拒名字、允许名单与"未写入任何数据"。manifest 原文
+    # 只用于展示，从不参与落盘路径拼接——"..\\..\\evil.dll" 这类穿越形状到不了任何 Join-Path。
+    param([Parameter(Mandatory = $true)][string]$Name)
+    foreach ($candidate in $script:AllowedDataFileNames) {
+        if ([string]::Equals($candidate, $Name, [System.StringComparison]::Ordinal)) {
+            return $candidate
+        }
+    }
+    Stop-Run -Code 4 -Message ("manifest.json 的 files 记录里有白名单外的文件名 '{0}'（只允许：{1}），拒绝恢复，未写入任何数据。" -f $Name, ($script:AllowedDataFileNames -join '、'))
 }
 
 function Find-ExistingDataFiles {
@@ -151,7 +174,8 @@ function Invoke-RestoreMain {
 
     Write-Host '第 1 步：校验备份完整性（重算 SHA256 与 manifest 比对）…'
     foreach ($entry in $entries) {
-        $srcPath = Join-Path $backupPath $entry.name
+        $name = Resolve-AllowedFileName -Name $entry.name
+        $srcPath = Join-Path $backupPath $name
         if (-not (Test-Path -LiteralPath $srcPath -PathType Leaf)) {
             Stop-Run -Code 4 -Message "校验失败：备份目录里缺少清单文件 '$($entry.name)'，未写入任何数据。"
         }
@@ -206,7 +230,8 @@ function Invoke-RestoreMain {
 
     Write-Host '第 3 步：从备份拷回文件（保留修改时间）…'
     foreach ($entry in $entries) {
-        [System.IO.File]::Copy((Join-Path $backupPath $entry.name), (Join-Path $appPath $entry.name), $true)
+        $name = Resolve-AllowedFileName -Name $entry.name
+        [System.IO.File]::Copy((Join-Path $backupPath $name), (Join-Path $appPath $name), $true)
         Write-Host ("  已恢复：{0}" -f $entry.name)
     }
 
