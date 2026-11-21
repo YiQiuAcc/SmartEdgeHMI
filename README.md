@@ -428,6 +428,7 @@ pio run --target upload
 | 发布包 | `tools/package.ps1` 一键产出 self-contained zip（78.26 MB，290 个文件）+ SHA256；`sha256sum -c` 通过，重跑幂等 | [tools/package.ps1](tools/package.ps1) · [release-checklist.md](docs/release-checklist.md) |
 | 真实硬件验收 | **未执行**：本机仅有 ELTIMA 虚拟串口对（COM1↔COM2），未检测到 ESP8266 / USB 串口芯片 | [docs/hardware-validation.md](docs/hardware-validation.md) |
 | 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表 | [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md) · [docs/release-checklist.md](docs/release-checklist.md) |
+| 现场操作手册 | 面向现场工程师：安装启动 / 连接 / 阈值 / 报警 / 备份回滚 / 常见问题，每条行为描述附依据出处 | [docs/user-manual.md](docs/user-manual.md) |
 
 ---
 

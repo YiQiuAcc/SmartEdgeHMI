@@ -140,3 +140,4 @@ SmartEdgeHMI 是 Windows 工业边缘上位机，主体为 .NET 8 WPF 应用，�
 - [数据保留说明](data-retention.md)：策略、清理行为与长期观察边界。
 - [性能基准](performance-benchmarks.md)：性能数字、运行时和未测量边界的唯一口径。
 - [串口故障复盘](postmortem-serial-dispose.md)：既有串口关闭竞态的根因与防复发记录。
+- [现场操作手册](user-manual.md)：面向现场工程师的启动 / 连接 / 报警 / 备份手册（每条行为描述附依据出处，未验证项单独登记）。
