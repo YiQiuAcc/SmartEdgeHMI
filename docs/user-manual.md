@@ -1,6 +1,6 @@
 # SmartEdgeHMI 现场操作手册
 
-> 适用版本：v1.2.0（候选包 `SmartEdgeHMI-1.2.0-win-x64.zip`，构建自 `main` @ `fb69bbe`，见 release-notes-v1.2.0.md §8）。
+> 适用版本：v1.2.0（发布包 `SmartEdgeHMI-1.2.0-win-x64.zip`，tag `v1.2.0`，构建自 `main` @ `26f6cef`，见 release-notes-v1.2.0.md §8）。
 > 本手册只写有依据的事实，关键结论的出处见文末「依据表」；看不到依据的写「未验证」并在 §9 登记。无截图可配。
 
 ## 1. 这是什么 / 适用版本
@@ -119,7 +119,7 @@ pwsh ./tools/restore-data.ps1 -BackupDir <某次备份目录> -AppDir <目标发
 
 | # | 关键结论 | 出处 |
 | --- | --- | --- |
-| 1 | 候选包 / 版本 / 构建来源 | docs/release-notes-v1.2.0.md §8 |
+| 1 | 发布包 / 版本 / 构建来源 / tag | docs/release-notes-v1.2.0.md §8 |
 | 2 | 定位（串口采集 + 曲线 + ISA-18.2 + SQLite） | docs/next-steps-v1.2.md §2.1 |
 | 3 | 便携 zip / self-contained / 解压即用 | release-notes §6；tools/package.ps1:76；release-checklist §7 |
 | 4 | 首启自动生成 `settings.json`，默认值来自 `appsettings.json` | SmartEdgeHMI/Core/Services/SettingsService.cs:40-67,91-122 |

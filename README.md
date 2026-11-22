@@ -27,7 +27,7 @@
 
 <br/><br/>
 
-**[下载 Release (v1.1.0)](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/download/v1.1.0/SmartEdgeHMI-v1.1.0-win-x64.zip) | [技术栈](#技术栈) | [完整开发路线](#路线图)**
+**[下载 Release (v1.1.0)](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/download/v1.1.0/SmartEdgeHMI-v1.1.0-win-x64.zip) | 最新版 `v1.2.0` 已打 tag、Release 资产待建立 | [技术栈](#技术栈) | [完整开发路线](#路线图)**
 
 </div>
 
@@ -378,7 +378,7 @@ dotnet run --project SmartEdgeHMI/SmartEdgeHMI.csproj
 
 ```bash
 dotnet test SmartEdgeHMI.Tests/SmartEdgeHMI.Tests.csproj
-# 期望：99 passed，0 failed（2026-11-21 Release 实测口径）
+# 期望：129 passed，0 failed（2026-11-22 清洁构建实测口径）
 ```
 
 ### 烧录固件 (可选)
@@ -409,7 +409,7 @@ pio run --target upload
 | 进程守护   | System.IO.Pipes（NamedPipeServerStream）                      |
 | 配置       | Microsoft.Extensions.Configuration（JSON + 强类型绑定）       |
 | 数据管道   | System.IO.Pipelines（流式解析 + 缓冲复用）                    |
-| 单元测试   | xUnit v3（99 tests，覆盖状态机/协议/CRC/串口传输/LTTB 降采样/SQLite 数据层）|
+| 单元测试   | xUnit v3（129 tests，覆盖状态机/协议/CRC/串口传输/LTTB 降采样/SQLite 数据层）|
 | 硬件固件   | PlatformIO + ESP8266（Arduino框架）                           |
 | 设备模拟器 | Node.js + serialport + modbus-serial                          |
 
@@ -419,14 +419,14 @@ pio run --target upload
 
 | 证据 | 状态与口径 | 链接 |
 | --- | --- | --- |
-| CI 门禁 | restore → build(Release) → test → format 四步（windows-latest）；workflow 已就绪，运行结果以徽章为准 | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| 单元测试 | 108 通过 / 0 失败（2026-11-22，`dotnet test -c Release` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
+| CI 门禁 | restore → build(Release) → test → format 四步（windows-latest）；最近两次均 success：`45009427633`（`847c065`）、`45008115174`（包构建提交 `26f6cef`），实时结果以徽章为准 | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| 单元测试 | 129 通过 / 0 失败 / 0 跳过（2026-11-22 清洁构建后 `dotnet test -c Release --no-build` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
 | format 门禁 | `dotnet format --verify-no-changes` 退出码 0（2026-11-22 实测） | 同 CI 第 4 步 |
 | 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 14.8 万行/秒；查询下推后报警历史 118 µs、报警上下文 1.1 ms、趋势 20 万行分配 0.75 MB | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
 | 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）：根因 / 修复 / 防复发约定 | [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) |
 | 数据保留 | 遥测 30 天分批清理 / 报警默认不删 / 库文件不缩小的边界说明 | [docs/data-retention.md](docs/data-retention.md) |
-| 发布包 | `tools/package.ps1` 一键产出 self-contained zip（78.26 MB，290 个文件）+ SHA256；`sha256sum -c` 通过，重跑幂等 | [tools/package.ps1](tools/package.ps1) · [release-checklist.md](docs/release-checklist.md) |
-| 真实硬件验收 | **未执行**：本机仅有 ELTIMA 虚拟串口对（COM1↔COM2），未检测到 ESP8266 / USB 串口芯片 | [docs/hardware-validation.md](docs/hardware-validation.md) |
+| 发布包 | `tools/package.ps1` 一键产出 self-contained zip（78.27 MB，511 个文件）+ SHA256；`pwsh tools/verify-release.ps1 -Version 1.2.0` 四项检查退出码 0，重跑幂等 | [tools/package.ps1](tools/package.ps1) · [release-checklist.md](docs/release-checklist.md) |
+| 真实硬件验收 | **已执行（2026-11-22，NodeMCU v2 + CH340 / COM4，两轮）**：六项全过（带备注）——第一轮 HW-06 失败并暴露 3 条 P1，修复后第二轮强杀恢复 7.8 s、125 分钟浸泡零中断；遗留 F-4 / F-6 转入 v1.2.1 | [docs/hardware-validation-2026-11-22.md](docs/hardware-validation-2026-11-22.md) · [验收模板](docs/hardware-validation.md) |
 | 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表 | [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md) · [docs/release-checklist.md](docs/release-checklist.md) |
 | 现场操作手册 | 面向现场工程师：安装启动 / 连接 / 阈值 / 报警 / 备份回滚 / 常见问题，每条行为描述附依据出处 | [docs/user-manual.md](docs/user-manual.md) |
 

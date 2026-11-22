@@ -1,13 +1,13 @@
 # SmartEdgeHMI v1.2.0 发布说明
 
-> 版本 1.2.0 ｜ 日期 2026-11-21 ｜ 目标框架 .NET 8 (win-x64, self-contained)
-> 状态：**候选包已重建（清洁构建于 `26f6cef`，CI 在该提交上全绿），待打 tag `v1.2.0`**
+> 版本 1.2.0 ｜ 日期 2026-11-22 ｜ 目标框架 .NET 8 (win-x64, self-contained)
+> 状态：**已打 tag `v1.2.0`**（发布包在 `26f6cef` 上清洁构建，tag 提交相对它只含文档）。GitHub Release 页与资产**尚未建立**，因此检查表 §10「从 Release 页下载验证」保持未勾选。
 > 旧候选包（`e1a3240` / `6fc86aa3…768077`；`8952e46` / `76e9641a…7681`；更早 `f8b3997` / `c02c87aa…e230b`；`fb69bbe` / `24fa4004…b168`、`ae10336` / `99e8a5e9…`）与其结论作废。
 > 2026-11-22 真机硬件验收（NodeMCU v2 + CH340, COM4）第一轮在 HW-06 判失败，暴露三条 P1（协议选择不持久化 / 重启后不自动连串口 / 手动重连与在途重试竞态）；修复后第二轮 HW-02/04/05/06 全部通过，验收记录见 [hardware-validation-2026-11-22.md](hardware-validation-2026-11-22.md)。
 
 ## 1. 摘要
 
-本版本把数据层三类高频查询（报警历史 / 报警上下文 / 趋势）从"整表读进内存"改为 SQL 查询下推与分桶取样，并补 `(DeviceId, Timestamp)` 复合索引，长期运行的大库不再拖垮内存与 GC；新增遥测数据保留策略（默认 30 天，报警不删），库文件不再无限膨胀。发布工程化侧补齐 `tools/package.ps1` 一键打包（publish / zip / SHA256）、CI 覆盖率产物与漏洞扫描；应用侧新增启动配置校验（9 参数，坏配置拒绝启动）与日志批量裁剪；并修复了一处 Watchdog 心跳管道同名串台、导致健康主程序被反复强杀的可用性缺陷（见 §3 与 [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md)）。候选包已在本机完成桌面走查（启动冒烟 / 双开拦截 / Watchdog 强杀重启 / 旧库迁移 / 保留清理 / 包内容与校验和），**未打 tag、未发布**，阻塞项见 §5。
+本版本把数据层三类高频查询（报警历史 / 报警上下文 / 趋势）从"整表读进内存"改为 SQL 查询下推与分桶取样，并补 `(DeviceId, Timestamp)` 复合索引，长期运行的大库不再拖垮内存与 GC；新增遥测数据保留策略（默认 30 天，报警不删），库文件不再无限膨胀。发布工程化侧补齐 `tools/package.ps1` 一键打包（publish / zip / SHA256）、CI 覆盖率产物与漏洞扫描；应用侧新增启动配置校验（9 参数，坏配置拒绝启动）与日志批量裁剪；并修复了一处 Watchdog 心跳管道同名串台、导致健康主程序被反复强杀的可用性缺陷（见 §3 与 [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md)）。发布包已在本机完成桌面走查（启动冒烟 / 双开拦截 / Watchdog 强杀重启 / 旧库迁移 / 保留清理 / 包内容与校验和）；其后完成无开发环境干净机验收与真机硬件验收（六项全过，见 §5 第 11 条），门禁全绿后打成 tag `v1.2.0`。**GitHub Release 页与资产尚未发布**，发布后 smoke 待补（检查表 §10）；遗留限制见 §5。
 
 ## 2. 新增
 
@@ -54,9 +54,9 @@
 
 ## 5. 已知问题（含未执行项与环境限制）
 
-1. **真实硬件验收未执行**：无 ESP8266 / USB 串口芯片，[hardware-validation.md](hardware-validation.md) 测试矩阵六项仍为「未执行」，电气噪声 / 断帧 / 拔插等真实设备路径完全未验证。
+1. **真机验收的未覆盖边界**（六项结论见第 11 条）：2026-11-22 用 NodeMCU v2 + CH340 / COM4 走完 [hardware-validation.md](hardware-validation.md) 六项矩阵，但以下边界**仍未验证、不可外推**：多节点 / 多设备并联、强电磁干扰与长帧错误注入、单节点真机连续运行超过 **125 分钟**（24 小时观察用的是虚拟串口 + 模拟器）、与第三方 Modbus 主站互操作。
 2. **干净机验收已完成（串口两项由本机替代覆盖）**：2026-11-22 在 Windows 10 Pro 22H2 干净机（`干净机`，无 .NET SDK、无 .NET 8 运行时、无任何 COM 口）完成验收——解压启动 **1.364 s**、设置落盘与重启保留、双开拦截、Watchdog 强杀后重启、包内容审计（511 文件、0 个禁止项）全部通过。该机无串口设备，`T4-COM1`（选 COM1 并重启保留）与 `T9`（数据链路）于同日改由**本机虚拟串口对 COM1↔COM2 + 模拟器**覆盖通过（选择 COM1 后立即落盘、重启仍为 COM1；连接后遥测 **0 → 37 行**、界面实时曲线、日志 0 ERR/0 WRN）。虚拟串口**不能**覆盖电气特性，那属于 P0-06 真实硬件验收。详见 [release-checklist.md §12](release-checklist.md)。
-3. **`v1.1.0` tag 不可编译**（`WatchdogHeartbeatClient.cs(41,64)` CS0103：`_settingsService` 不存在）：本候选包由 `main` 的 `f8b3997` 构建；v1.1.0 发布包来源已追溯（[traceability-v1.1.0.md](traceability-v1.1.0.md)：由带未提交改动的标签工作区构建，实际构建树无法复原）。
+3. **`v1.1.0` tag 不可编译**（`WatchdogHeartbeatClient.cs(41,64)` CS0103：`_settingsService` 不存在）：本发布包由 `main` 的 `26f6cef` 构建（相对上一候选 `e1a3240` 仅文档变化）；v1.1.0 发布包来源已追溯（[traceability-v1.1.0.md](traceability-v1.1.0.md)：由带未提交改动的标签工作区构建，实际构建树无法复原）。
 4. **从"受限完整性目录"运行时会写盘失败（已定位，非产品缺陷）**：程序若从带 **Low 完整性标签**的目录启动（例如被沙箱标记的工作区目录），进程继承低完整性令牌，按 Windows 强制完整性策略无法写入中完整性的 `%LOCALAPPDATA%`，日志出现 `[WRN] 创建设置目录失败` 与 `[ERR] 保存通信设置失败`。2026-11-22 干净机实测（同机装有**第三方安全软件 并全程运行、未加白**）：同一份包从低完整性目录启动失败、从普通用户可写目录启动**完全正常**（设置写入、重启保留、日志 0 条 ERR/WRN）；进程完整性实测 Low 与 Medium 完整性级别。**结论：既不是杀软拦截，也不是产品缺陷——把程序解压到普通用户可写目录运行即可。**
 5. **趋势查询耗时与旧实现持平**：收益仅在内存分配（-99.1%）与长期稳定性，不存在"提速"（沿用 2026-11-17 基准结论）。
 6. **升级会按 30 天保留策略清理旧遥测**：升级后首次启动，数据保留任务会删除超过保留期（默认 30 天）的旧遥测。升级 / 回滚演练实测：v1.1.0 库中 60 行 2026-06-29 的遥测在升级到 1.2.0 后首次启动即被判为超期清理（报警按 `AlarmRetentionDays=0` 保留）。这是**策略行为，不是数据丢失**；如需保留旧遥测，请在升级前备份或调整保留配置（见 §6）。
@@ -96,6 +96,8 @@
 | 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验。旧候选包均已作废：`6fc86aa3…768077`（`e1a3240`）、`76e9641a…7681`（`8952e46`）、`c02c87aa…e230b`（`f8b3997`）、`24fa4004…b168`（`fb69bbe`）、`99e8a5e9…34a1`（`ae10336`） |
 | 构建来源 | `main` @ `26f6cef`，清洁构建（先删除全部 `bin/obj/.vs/.pio/node_modules/dist` 构建产物再 `pwsh tools/package.ps1 -Version 1.2.0`，2026-11-22 17:47）；CI run `45008115174` 在该提交上 success；包内 `SmartEdgeHMI.exe` 与 `SmartEdgeHMI.Watchdog.exe` 的 `ProductVersion` 均为 `1.2.0+26f6cef3b6fa50e20a677ebb9218bd326bb569b9` |
 | 包内容 | 511 条目 = 503 `.dll` / 5 `.json` / 3 `.exe`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map/.h`、无 `secrets.h`（本轮实测口径） |
+| 门禁 | `dotnet build -c Release` 0 错误（2 条既有 NU1701）；`dotnet test -c Release --no-build` **129 通过 / 0 失败 / 0 跳过**；`dotnet format --verify-no-changes` 退出码 0（2026-11-22 17:44，先删净 `bin` / `obj` / `.vs` / `.pio` / `node_modules` / `dist` 再还原） |
+| tag | `v1.2.0`（注解标签）指向本文件所在提交；该提交相对包构建提交 `26f6cef` 只含文档，`git diff 26f6cef v1.2.0 -- SmartEdgeHMI/ SmartEdgeHMI.Watchdog/ Firmware/ Simulator/ tools/ .github/` 输出为空即证明源码与二进制零差异 |
 
 ## 9. 证据索引
 
@@ -111,9 +113,9 @@
 | 串口 CTS 竞态复盘 | [postmortem-serial-dispose.md](postmortem-serial-dispose.md) |
 | Watchdog 心跳管道串台复盘 | [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md) |
 | 发布检查表（勾选状态与签字） | [release-checklist.md](release-checklist.md) |
-| 构建提交 | `8952e46`（候选包构建时的 main HEAD；相对上一候选 `f8b3997` 的产品代码差异仅本次 Watchdog 管道修复，见 §3） |
+| 构建提交 | `26f6cef`（包构建时的 main HEAD；相对上一候选 `e1a3240` 产品代码零差异——`git diff --stat e1a3240 26f6cef` 只改 4 个文档文件） |
 | 基准时效依据 | `8dfcb40`（最后一次基准相关提交）之后 `SmartEdgeHMI/Data` 仅 `c4579d0` 新增保留服务，未触及 LTTB 与写入热路径，无需重跑基准 |
 | 旧库生成提交（v1.1.0 tag 不可编译，改用同 schema 旧库） | `3cb8a00` |
 | 串口修复提交 | `30390aa` |
-| CI run | `44981622078`（`8952e46`，success；与候选包构建提交一致） |
+| CI run | `45008115174`（`26f6cef`，包构建提交，success）· `45009427633`（`847c065`，success）；tag 提交的运行为该提交在 `main` 上触发的 CI（`gh run list --commit $(git rev-parse v1.2.0)` 可查） |
 | 打包脚本 | `tools/package.ps1` |

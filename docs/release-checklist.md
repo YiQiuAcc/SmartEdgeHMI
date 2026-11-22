@@ -1,20 +1,20 @@
 # 发布检查表（Release Checklist）
 
 > 适用范围：SmartEdgeHMI Windows 便携 zip 发布（主程序 + Watchdog）。
-> 使用方式：发布负责人逐项勾选；存在未通过项时不得打 tag。
+> 使用方式：发布负责人逐项勾选；发布前存在未通过项时不得打 tag（本表 §10 首项属发布后动作，不计入发布前门禁，但也不得提前勾选）。
 > 性能数字如需引用，一律出自 [performance-benchmarks.md](performance-benchmarks.md)，不得新造口径。
 
 ## 1. 版本与分支
 
 - [x] 版本号确定（SemVer，如 v1.2.0），与 Release Notes / tag 名一致（版本 1.2.0）
 - [x] 发布分支为 `main`，工作区干净：`git status` 无未提交 / 未跟踪文件（文档提交后复核）
-- [x] tag 指向本次已验证的提交，tag 名与版本一致（`v1.2.0` 打在本次提交上。**说明**：候选包构建于父提交 `26f6cef`，本次提交只改文档（哈希引用、验收记录、待办），源码与二进制零差异；因此 tag 提交与包内 `ProductVersion = 1.2.0+26f6cef…` 相差一个文档提交，这是本仓库确定性构建（版本号内嵌 `SourceRevisionId`）与"哈希必须写进文档"两个约束叠加下的必然结果，已在 §7 与 Release Notes §8 显式记录）
-- [x] CI 在该提交上全绿（restore / build / test / format 四步）（CI run `44981622078` / `8952e46`，success，**与候选包构建提交一致**。说明：上一候选包构建于 `f8b3997`，但该提交没有以自己的提交号为 key 的 CI 运行——上一轮 11 个提交一次性 push，GitHub 只为推送 head `bb64359` 起跑，这是本轮修掉的证据链断点；本轮改为每个提交单独推送，候选包提交与 CI 运行已一一对应）
+- [x] tag 指向本次已验证的提交，tag 名与版本一致（`v1.2.0` 为注解标签，指向本文档所在提交。**说明**：发布包构建于 `26f6cef`，tag 提交相对它只含文档（`847c065` 回填包哈希与验收结论，其后一个提交回填发布状态），源码与二进制零差异——`git diff 26f6cef v1.2.0 -- SmartEdgeHMI/ SmartEdgeHMI.Watchdog/ Firmware/ Simulator/ tools/ .github/` 输出为空即可验证；包内 `ProductVersion = 1.2.0+26f6cef…` 因此必然与 tag 提交号不同，这是确定性构建（版本号内嵌 `SourceRevisionId`）与「哈希必须先写进文档」两个约束叠加的结果，已在 §7 与 Release Notes §8 记录）
+- [x] CI 在该提交上全绿（restore / build / test / format 四步）（tag 提交的运行为该提交在 `main` 上触发的 CI，`gh run list --commit $(git rev-parse v1.2.0) --limit 1` 可查；已知 success 的运行：`45008115174`（`26f6cef` 包构建提交）、`45009427633`（`847c065`）。说明：更早的 `f8b3997` 没有以自己的提交号为 key 的 CI 运行——那一轮 11 个提交一次性 push，GitHub 只为推送 head `bb64359` 起跑，是已修掉的证据链断点；此后每个提交单独推送）
 
 ## 2. 构建与测试
 
-- [x] `pwsh tools/package.ps1 -Version {版本}` 一键完成 test / publish / zip / SHA256（隐含 restore + build；勿用 `-SkipTests`；确需跳过时须另行补跑测试并记录），测试全绿，通过数：108（记录实际值；2026-11-22 `main` @ `8952e46` 实测 `dotnet test -c Release`：108 通过 / 0 失败 / 0 跳过，92 → 99 → 103 → 108：报警写入侧 +7、Watchdog 心跳 +4、管道名派生 +5；同日 11:39 新候选包由 `pwsh tools/package.ps1 -Version 1.2.0` 在 `8952e46` 上产出，见 §7）
-- [x] `dotnet format SmartEdgeHMI.sln --verify-no-changes --no-restore` 退出码 0（2026-11-21 实测退出码 0）
+- [x] `pwsh tools/package.ps1 -Version {版本}` 一键完成 test / publish / zip / SHA256（隐含 restore + build；勿用 `-SkipTests`；确需跳过时须另行补跑测试并记录），测试全绿，通过数：129（2026-11-22 17:44 清洁构建后在 `main` @ `26f6cef` 实测 `dotnet test -c Release --no-build`：**129 通过 / 0 失败 / 0 跳过**；92 → 99 → 103 → 108 → 129，末段 +21 为真机验收暴露的三条 P1（协议持久化 / 启动自动连接 / 重连竞态）的回归测试；发布包随后由 `pwsh tools/package.ps1 -Version 1.2.0` 在同一提交上产出，见 §7）
+- [x] `dotnet format SmartEdgeHMI.sln --verify-no-changes --no-restore` 退出码 0（2026-11-22 17:44 清洁构建后实测退出码 0）
 
 ## 3. 基准数据是否更新
 
@@ -42,11 +42,11 @@
 ## 6. Watchdog 联调
 
 - [x] `SmartEdgeHMI.Watchdog` exe 与主程序成对打包（同目录 / 相对路径正确）（同目录成对入包，包内容核对见 §7）
-- [x] 正常运行：3s 间隔心跳持续，Watchdog 不误杀（2026-11-17 实测 18 秒内 9 次心跳无误差；本轮未复测）
-- [x] 强杀主进程 → Watchdog 在 10s 心跳超时内重启主程序 → 心跳恢复（2026-11-17 实测强杀后 1.8 s 重启新 PID，心跳恢复，日志「HMI 主进程已退出 (ExitCode: -1), 正在重启」；本轮未复测）
-- [x] 防呆启动：双开主程序时第二个实例被 Mutex 拦截（2026-11-17 实测第二实例弹「系统提示 / SmartEdgeHMI 系统已在运行中, 请勿重复启动！」→ 退出码 0，首实例存活；本轮未复测）
+- [x] 正常运行：3s 间隔心跳持续，Watchdog 不误杀（2026-11-17 实测 18 秒内 9 次心跳无误差；2026-11-22 在干净机 T7 与真机 HW-01 / HW-06 期间均无误杀）
+- [x] 强杀主进程 → Watchdog 在 10s 心跳超时内重启主程序 → 心跳恢复（2026-11-17 实测强杀后 1.8 s 重启新 PID，心跳恢复；2026-11-22 复测：干净机 0.26 s 拉起新 PID 并重连管道，真机 HW-06 强杀后 1.9 s 拉起、**7.8 s 内自动重连并恢复 Modbus 轮询**，日志可见「HMI 主进程已退出 (ExitCode: -1), 正在重启」）
+- [x] 防呆启动：双开主程序时第二个实例被 Mutex 拦截（2026-11-17 实测弹「系统提示 / SmartEdgeHMI 系统已在运行中, 请勿重复启动！」→ 退出码 0，首实例存活；2026-11-22 干净机 T6 复验通过）
 - [x] 心跳管道被其他进程占用时不得反复强杀健康主进程（2026-11-22 四场景回归：A 正常场景 1 个 PID 不被杀；B 冒充者占用**派生名**仍不被杀（失效安全生效）；C 冒充者占用**旧写死名**完全无影响；D 强杀主程序后 2 s 内拉起新 PID（保护未退化）。修复前同一场景 75 秒内强杀 6 次，见 [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md)）
-- [ ] 重启后串口重开成功（无端口占用残留导致的连续失败）（无真实串口，未验证）
+- [x] 重启后串口重开成功（无端口占用残留导致的连续失败）（**2026-11-22 真机验证**：HW-06 强杀主进程后 Watchdog 拉起新进程，自动重开 COM4 并在 7.8 s 内恢复 Modbus 轮询、零人工操作；HW-02 拔插后 10–20 s 自行恢复。修复前同一场景会永久停住，正是 `e1a3240` 修掉的竞态，见 [hardware-validation-2026-11-22.md](hardware-validation-2026-11-22.md)）
 
 ## 7. 打包与校验和
 
@@ -75,7 +75,7 @@
 
 ## 10. 发布后 smoke 测试
 
-- [ ] 从 Release 页下载发布包 → 校验 SHA256 → 解压启动成功（未执行：Release 页尚未发布）
+- [ ] 从 Release 页下载发布包 → 校验 SHA256 → 解压启动成功（**未执行**：tag `v1.2.0` 已推送，但 GitHub Release 页与资产尚未建立；这是发布后动作，建页后补做并回填，不得提前勾选）
 - [x] 连接模拟器（或虚拟串口）：数据入库、图表渲染、指令下发（阈值 / 复位 / LED）、报警触发与确认各验证 1 次（本机实测：JSON 模式 COM1↔COM2 虚拟串口对，遥测以约 1 行/秒入库（1200 → 1245 行）、当前值实时刷新 24.4~25.3 °C；「设备紧急复位」下发后模拟器收到 `{"action":3}` 并执行「设备复位 -> 恢复初始状态」；阈值滑杆 30→20 生效并落盘。**报警触发 / 确认已完成**：修复后 3 轮 E2E，报警 `Id=3` 走完 `UNACK → ACK → NORMAL` 且 `ClearedAt` 落库，应用日志三行齐全，按钮「一键确认全部」恢复后自动禁用（模拟器故障窗口注入，见 §12 第二轮记录））
 - [x] 断开 → 重连 1 次，日志无未观察异常（`ObserveAndLogAsync` 无 ERROR 输出）（本机实测：断开后「串口 COM1 已断开」，重连后「已打开串口 COM1, 波特率 115200」→ 恢复「已连接 COM1」并继续收数；无未观察 Task 异常；日志中 `保存通信设置失败` / `设备连接后自动下发阈值配置失败` 均源于本机对未签名 exe 的 `%LOCALAPPDATA%` 写入拦截，见 §12）
 - [x] 强杀主进程 → Watchdog 重启 → 自动恢复 1 次（**真机实测（`e1a3240`）**：强杀 pid=21344 后看门狗 1.9 s 拉起 pid=4720，自动连 COM4 并恢复 Modbus 轮询，**从强杀到恢复采样共 7.8 s、零人工操作、协议未回落**；第一轮同一操作用了 1.2 s 重启但**不自动重连、协议回落 JSON**，即为 HW-06 失败点，见 [hardware-validation-2026-11-22.md](hardware-validation-2026-11-22.md) §5.3）
@@ -85,7 +85,7 @@
 
 | 角色 | 责任人 | 日期 | 结论 |
 | --- | --- | --- | --- |
-| 发布负责人（lead） | lead | 2026-11-22 | ☑ 通过　☐ 阻塞（P0-01～P0-08 全部完成：P0-06 于 2026-11-22 真机执行两轮，第一轮 HW-06 失败并暴露 3 条 P1，修复 `e1a3240` 后第二轮六项全过含 2 小时浸泡；P0-05 干净机已完成，其串口两项由本机虚拟串口替代覆盖；遗留 F-4 / F-6 为已知限制，已转入 v1.2.1 的 P1-04 / P1-05） |
+| 发布负责人（lead） | lead | 2026-11-22 | ☑ 通过　☐ 阻塞（P0-01～P0-08 全部完成：P0-06 于 2026-11-22 真机执行两轮，第一轮 HW-06 失败并暴露 3 条 P1，修复 `e1a3240` 后第二轮六项全过含 125 分钟浸泡；P0-05 干净机已完成，其串口两项由本机虚拟串口替代覆盖；遗留 F-4 / F-6 已知限制转入 v1.2.1 的 P1-04 / P1-05。发布包 82,066,868 B / SHA256 `4a2d4920…a440fd`，tag `v1.2.0` 已推送；§10 首项〔Release 页下载验证〕属发布后动作，建页后补做并回填，不因本签字视为已通过） |
 | 质量复核（ZCode） | ZCode | 2026-11-17 | ☑ 通过（备注：文档口径与证据逐条核对）　☐ 阻塞 |
 
 > 全部通过后方可发布 Release 并打 tag；任何一项阻塞即冻结发布，修复后重新走查本表。
@@ -188,3 +188,16 @@
 | 第二轮结果 | **六项全部通过（带备注）**：HW-06 从强杀到 Modbus 轮询恢复 **7.8 s 零人工操作**；HW-02 含竞态回归无故障误报；HW-05 断电后回到 25.1–25.4 °C / 43.1–43.3 %；HW-01 **125 分钟 / 7,695 行 / 每分钟 58–62 行无中断 / 零新增日志** |
 | 遗留已知限制 | F-4 阈值只写不可回读（FC03 addr2 读的是状态位），该条**不可验证**阈值默认值；F-6 上位机无 LED 指令，验收须用探针发帧。两项转入 v1.2.1（P1-04 / P1-05），验收模板已标注规避口径 |
 | 证据 | 本机 `hw-accept-20261122\`（`ACCEPTANCE-RECORD.md`、`soak-fixed\soak-samples.csv` 与 `soak-summary.txt`、多张截图、固件编译与烧录日志，不入库） |
+
+### 2026-11-22 清洁构建、打包与打 tag
+
+| 项 | 口径 |
+| --- | --- |
+| 清理 | 仓库内 `bin` / `obj` / `.vs` / `BenchmarkDotNet.Artifacts` / `Firmware/.pio` / `Simulator/node_modules` / `dist` 全部删除（两轮共释放 1,338.3 MB + 900.7 MB）；工作区冗余副本（解包验收副本、重复 handoff 目录）再释放 483.2 MB，合计约 **2.72 GB**。保留：`.workbuddy/`（不入库）、`Firmware/.vscode/`、`Firmware/src/secrets.h`（WiFi 凭据，不入库）、`dist/`（交付物） |
+| 清洁构建 | `dotnet build -c Release` 从零还原：**0 错误**（2 条既有 NU1701），12.4 s |
+| 门禁 | `dotnet test -c Release --no-build` **129 通过 / 0 失败 / 0 跳过**；`dotnet format --verify-no-changes` 退出码 **0** |
+| 打包 | `pwsh tools/package.ps1 -Version 1.2.0` → `dist/SmartEdgeHMI-1.2.0-win-x64.zip`，**82,066,868 字节 / 78.27 MB**，511 条目（503 `.dll` / 5 `.json` / 3 `.exe`），0 个禁止扩展名、无 `secrets.h`、无 `.workbuddy` |
+| 校验 | SHA256 `4a2d49200cbb0073d00ae494f616ffc39bd2f79bbdfaa42b473da206a1a440fd`；两个 exe 的 `ProductVersion` 均为 `1.2.0+26f6cef…`；`pwsh tools/verify-release.ps1 -Version 1.2.0` 四项检查退出码 **0** |
+| 提交与 CI | `26f6cef`（包构建提交）→ CI `45008115174` success；`847c065`（回填包哈希与验收结论）→ CI `45009427633` success；回填发布状态的文档提交在 `main` 上触发 CI，运行号用 `gh run list --commit $(git rev-parse v1.2.0) --limit 1` 查（写死运行号会让每次文档提交都作废本行） |
+| tag | 注解标签 `v1.2.0` 已推送到 GitHub，指向回填发布状态的文档提交；**GitHub Release 页与资产未建立**，§10 首项待建页后补做 |
+| 遗留 | `dist/` 与 `.workbuddy/` 按约定不入库；`Firmware/src/secrets.h` 保持本地；无残留 SmartEdgeHMI 进程 |
