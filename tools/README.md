@@ -22,3 +22,19 @@
 - 总判定：全部通过 `PASS`；有「不通过」`FAIL`；只有「需人工判断」`PASS-WITH-NOTES`；行数 < 期望采样数（`Hours*3600/IntervalSec`）的 80% 时一律 `INCOMPLETE`（只用于中途检查，不是结论）。
 - 阈值口径：缺失 ≤3 且最大间隔 ≤1.35×IntervalSec；存活 0 次 `AppAlive=False` 且 PID 去重 =1；内存后 1/3 斜率 <10 MB/h 且全程增长 <50%；句柄全程增量 <50（50–200 需人工判断，>200 不通过）；WAL 最大 <50 MB 且末 1/10 极差占比 ≤5%；遥测达成率 ≥98%；日志错误/警告无新增。
 - 退出码：`0` 正常出报告；`1` 仅在 `-Strict` 且存在「不通过」；`2` 输入/参数错误。
+
+## 发布包校验（TASK-127）
+
+- `verify-release.ps1`：`pwsh ./tools/verify-release.ps1 -Version 1.2.0` —— 只读校验 `dist\SmartEdgeHMI-<Version>-<Runtime>.zip` 的实际 SHA256 与同名 `.sha256` 一致，且当前哈希已写入 `release-checklist.md` 与 `release-notes-v<Version>.md`、两份文档里的包哈希引用行都标注「作废 / void」；不改任何文件，把「重打包后忘记改全文档」变成一条命令的硬失败。
+- 「作废 / void」判定只覆盖**包哈希引用行**：同一行同时写了发布包文件名 `SmartEdgeHMI-<Version>-<Runtime>.zip`（大小写不敏感）与 64 位哈希的行，其中不等于当前哈希的必须标注；证据文件（如 soak.csv）等其他哈希引用行不同时含包文件名，有意不参与判定，避免把证据链哈希误判为过期。
+
+| 参数 | 必填 | 默认 | 说明 |
+|---|---|---|---|
+| `-Version` | 是 | — | 版本号（如 `1.2.0`），用于定位 `SmartEdgeHMI-<Version>-<Runtime>.zip` 与 `release-notes-v<Version>.md` |
+| `-DistDir` | 否 | `dist` | 产物目录，相对仓库根解析（绝对路径亦可） |
+| `-Runtime` | 否 | `win-x64` | 目标运行时标识 |
+| `-DocsDir` | 否 | `docs` | 发布文档目录，相对仓库根解析 |
+
+- 退出码：`0` 四项全部通过；`1` 未预期异常；`2` 参数或目录无效（zip / `.sha256` / 发布文档不存在）；`3` zip 与 `.sha256` 不一致（含 `.sha256` 格式无法解析）；`4` 文档缺少当前哈希；`5` 存在未标注作废的包哈希引用行里的非当前哈希。
+- 示例：`pwsh tools/verify-release.ps1 -Version 1.2.0`
+- 时机：发布前、以及每次改完这两份发布文档后各跑一次。
