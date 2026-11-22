@@ -162,4 +162,4 @@
 | T8 包审计 | **通过**：511 文件（503 `.dll` / 5 `.json` / 3 `.exe`），0 个 `.cs/.csproj/.sln/.pdb/.js/.map/secrets.h`；两 EXE 产品版本 `1.2.0+8952e46…`；`NotSigned` |
 | T9 数据链路 | **未执行**（无串口设备；按要求未安装驱动或虚拟串口） |
 | 关键结论 | 写盘失败的根因是**运行目录的完整性级别**而非杀软：从低完整性目录启动时进程为 Low，无法写中完整性的 `%LOCALAPPDATA%`；同一台机器换到桌面普通目录后设置写入、重启保留、日志全部正常，第三方安全软件全程运行未拦截 |
-| 回传缺件 | 报告引用的 `SmartEdgeHMI-acceptance-return\`（含 `localappdata-SmartEdgeHMI\`、`package-audit.txt`、`low-integrity-diagnosis.txt`）未随报告回传；**可独立复核的项（包哈希、包内容 511/0、管道名复算）已由本机重算并一致**，日志级证据仍缺原件 |
+| 回传证据 | **齐备**：`SmartEdgeHMI-acceptance-return-20261122.zip`（45 个条目）含 `localappdata-SmartEdgeHMI\`（`settings.json` 原件 `BaudRate=9600` / `DefaultThreshold=65`、两份日志原件均为 **0 ERR / 0 WRN / 0 DBG**）、`extraction-logs\watchdog-20261122.log` 原件（含派生管道名与"退出→重启→重连"完整时间线）、`package-audit.txt`、`low-integrity-diagnosis.txt`、`invalid-lowil-runs\`（三次失败运行原件）、6 张关键截图与报告全文。本机已解包复核，与报告逐项一致 |
