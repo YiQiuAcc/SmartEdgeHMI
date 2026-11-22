@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Pipes;
 using Serilog;
+using SmartEdgeHMI.Shared;
 using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.Core.Services;
@@ -9,7 +10,8 @@ namespace SmartEdgeHMI.Core.Services;
 /// <remarks>构造心跳客户端</remarks>
 public sealed class WatchdogHeartbeatClient(ISettingsService settingsService) : IDisposable
 {
-    private const string PipeName = "SmartEdgeHMI_Watchdog_Pipe";
+    // 管道名按本程序所在目录派生, 与 Watchdog 侧按同一规则取值; 静态只读保证只算一次, 避免每次重连都做一次 SHA256
+    private static readonly string _pipeName = WatchdogPipeName.For(AppContext.BaseDirectory);
 
     private readonly CancellationTokenSource _cts = new();
 
@@ -29,7 +31,7 @@ public sealed class WatchdogHeartbeatClient(ISettingsService settingsService) : 
             try
             {
                 await using var pipeClient = new NamedPipeClientStream(
-                    ".", PipeName, PipeDirection.Out, PipeOptions.Asynchronous);
+                    ".", _pipeName, PipeDirection.Out, PipeOptions.Asynchronous);
 
                 await pipeClient.ConnectAsync(settingsService.Current.Watchdog.ConnectTimeoutMs, ct);
                 Log.Debug("已连接到 Watchdog 命名管道");

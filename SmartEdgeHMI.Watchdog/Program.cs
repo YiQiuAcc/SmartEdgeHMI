@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;
 using Serilog;
+using SmartEdgeHMI.Shared;
 
 namespace SmartEdgeHMI.Watchdog;
 
@@ -13,13 +14,19 @@ namespace SmartEdgeHMI.Watchdog;
 /// </summary>
 public static class Program
 {
-    private const string PipeName = "SmartEdgeHMI_Watchdog_Pipe";
+    // 心跳管道名按被测程序所在目录派生(见 WatchdogPipeName), 在 Main 中路径校验通过后赋值
+    private static string _pipeName = string.Empty;
     private const string MutexName = "Global\\SmartEdgeHMI_Watchdog_Mutex";
 
     // 心跳超时阈值(毫秒)
     private const int HeartbeatTimeoutMs = 10_000;
     // Watchdog 检测周期(毫秒)
     private const int WatchdogTickMs = 2_000;
+
+    // 管道服务端当前是否已成功创建(处于等待连接/读取心跳状态); 只有它为真时才允许按心跳超时杀进程
+    private static volatile bool _pipeServerBound;
+    // 上次打印管道绑定失败 ERR 日志的时刻, 用于把重复报错降噪为 60 秒一条
+    private static DateTime _lastPipeBindErrorLog = DateTime.MinValue;
 
     private static DateTime _lastHeartbeat = DateTime.MinValue;
     private static Process? _hmiProcess;
@@ -72,8 +79,11 @@ public static class Program
             return;
         }
 
+        // 管道名必须在启动 HMI 之前确定: 主程序按同一规则派生管道名才能连上本进程
+        _pipeName = WatchdogPipeName.For(_hmiWorkingDirectory);
+
         // 合并日志调用, 满足单代码块少于 3 个 Information 日志的限制
-        Log.Information("Watchdog 守护进程启动。监控目标: {Path}, 工作目录: {Dir}", _hmiExecutablePath, _hmiWorkingDirectory);
+        Log.Information("Watchdog 守护进程启动。监控目标: {Path}, 工作目录: {Dir}, 管道: {Pipe}", _hmiExecutablePath, _hmiWorkingDirectory, _pipeName);
 
         // 启动 HMI 主进程
         StartHmiProcess();
@@ -156,14 +166,17 @@ public static class Program
     {
         while (!ct.IsCancellationRequested)
         {
+            // 每轮开始先回到未绑定状态, 直到管道服务端真正创建成功才允许按心跳超时杀进程
+            _pipeServerBound = false;
             try
             {
                 await using var pipeServer = new NamedPipeServerStream(
-                    PipeName,
+                    _pipeName,
                     PipeDirection.In,
                     1,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.WriteThrough);
+                _pipeServerBound = true;
 
                 Log.Debug("Watchdog 等待 HMI 连接命名管道...");
 
@@ -183,8 +196,24 @@ public static class Program
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "管道服务器循环异常, 将在 2 秒后重试。");
+                // 绑定失败常见于管道名被其他进程占用, 每 2 秒刷一条 ERR 会淹没日志:
+                // 距上次打印不足 60 秒时降为 Debug, 避免 ERROR 级别刷屏
+                if (DateTime.UtcNow - _lastPipeBindErrorLog >= TimeSpan.FromSeconds(60))
+                {
+                    _lastPipeBindErrorLog = DateTime.UtcNow;
+                    Log.Error(ex, "管道服务器循环异常, 将在 2 秒后重试。");
+                }
+                else
+                {
+                    Log.Debug(ex, "管道服务器循环异常, 将在 2 秒后重试。");
+                }
+
                 await Task.Delay(2000, ct);
+            }
+            finally
+            {
+                // 连接结束或异常后回到未绑定状态, 保证超时判定不基于失效的心跳通道
+                _pipeServerBound = false;
             }
         }
     }
@@ -250,8 +279,10 @@ public static class Program
                     continue;
                 }
 
-                // 如果超过心跳超时阈值且 HMI 仍在运行, 判定为无响应, 强制重启
-                if (_lastHeartbeat != DateTime.MinValue && elapsedSinceHeartbeat.TotalMilliseconds > HeartbeatTimeoutMs)
+                // 如果超过心跳超时阈值且 HMI 仍在运行, 判定为无响应, 强制重启。
+                // 只有管道已绑定才允许按超时杀进程: 管道未绑定时无法区分「主程序无响应」与「心跳通道根本不可用」,
+                // 此时杀进程只会把健康进程反复重启, 属于雪崩放大
+                if (_pipeServerBound && _lastHeartbeat != DateTime.MinValue && elapsedSinceHeartbeat.TotalMilliseconds > HeartbeatTimeoutMs)
                 {
                     Log.Warning("HMI 心跳超时 ({Seconds:F1}s 无心跳), 正在强制重启...", elapsedSinceHeartbeat.TotalSeconds);
 

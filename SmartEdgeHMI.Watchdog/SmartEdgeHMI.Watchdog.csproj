@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Shared\WatchdogPipeName.cs" Link="Shared\WatchdogPipeName.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Sinks.Async" />
     <PackageReference Include="Serilog.Sinks.File" />

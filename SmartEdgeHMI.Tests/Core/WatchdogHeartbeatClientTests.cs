@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using Microsoft.Extensions.Configuration;
 using SmartEdgeHMI.Core.Services;
+using SmartEdgeHMI.Shared;
 
 namespace SmartEdgeHMI.Tests.Core;
 
@@ -9,7 +10,8 @@ namespace SmartEdgeHMI.Tests.Core;
 /// <remarks>xunit 同一测试类内的用例默认串行执行, 正好避免多个用例抢占同一个管道名, 因此所有用例都放在同一个类里</remarks>
 public class WatchdogHeartbeatClientTests : IDisposable
 {
-    private const string PipeName = "SmartEdgeHMI_Watchdog_Pipe";
+    // 与产品客户端同一规则派生(基于测试进程的 AppContext.BaseDirectory), 保证假服务端与产品客户端算出同一个名字
+    private static readonly string _pipeName = WatchdogPipeName.For(AppContext.BaseDirectory);
 
     // 测试提速参数: 让每个用例在 1-3 秒内结束, 整套新增用例总耗时控制在 15 秒内。
     // 数值直接写入内存设置对象(不经过 AppSettingsValidator, 其下限为 500ms), 也不会落盘。
@@ -204,7 +206,7 @@ public class WatchdogHeartbeatClientTests : IDisposable
 
     /// <summary>创建与产品约定一致的测试用服务端(入方向、单实例、字节模式、异步)</summary>
     private static NamedPipeServerStream CreateServer()
-        => new(PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        => new(_pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
     /// <summary>从服务端管道累计读取 expectedByteCount 个字节, 超时则返回已读到的部分(由调用方断言判定)</summary>
     private static async Task<byte[]> ReadUntilCountAsync(NamedPipeServerStream server, int expectedByteCount, TimeSpan timeout)
