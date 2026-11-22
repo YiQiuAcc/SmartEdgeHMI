@@ -53,7 +53,7 @@
 - [x] 打包执行：`pwsh tools/package.ps1 -Version {版本}`（publish / 压缩 / SHA256 一键完成，产物输出至 `dist/`）（2026-11-22 11:39 实测 `pwsh tools/package.ps1 -Version 1.2.0`，构建来源 `main` @ `8952e46`，产出新候选包；旧候选包 `f8b3997` 作废，见下方 SHA256 项）
 - [x] 产物命名：`SmartEdgeHMI-{版本}-win-x64.zip`（脚本按 `-Version` / `-Runtime` 生成，tag 前缀 `v` 已去除）（产物 `SmartEdgeHMI-1.2.0-win-x64.zip`，82,066,546 字节 / 78.26 MB；新包根文件 / 条目数未逐项复测）
 - [x] 包内容核对：主程序 exe + Watchdog exe + `appsettings.json` + 运行所需依赖；不含源码 / 测试 / 基准工程 / 模拟器（含 `SmartEdgeHMI.exe` / `SmartEdgeHMI.Watchdog.exe` / `appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h`）
-- [x] 干净目录（及一台无开发环境的机器）解压后可直接启动（本机空白目录解压后直接启动通过；无 .NET 环境机器未验证，见 §12 与 Release Notes 已知问题 2）
+- [x] 干净目录（及一台无开发环境的机器）解压后可直接启动（本机空白目录解压后直接启动通过；**干净机已于 2026-11-22 验收通过**：Windows 10 Pro 22H2 / `干净机`，无 .NET SDK、无 .NET 8 运行时，解压 511 文件后启动 1.364 s 出现主窗口，见 §12 与 Release Notes 已知问题 2）
 - [x] SHA256 校验和（脚本自动写入 `dist/<zip>.sha256`，格式 `<hash>  <文件名>`），记录到 Release Notes：
       `SHA256: 76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681`（旧候选包 `c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` / `f8b3997` 作废，`24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `fb69bbe` 作废；更早 `99e8a5e9…34a1` / `ae10336` 已作废），2026-11-22 11:39 重建时由脚本记录；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验
 
@@ -85,7 +85,7 @@
 
 | 角色 | 责任人 | 日期 | 结论 |
 | --- | --- | --- | --- |
-| 发布负责人（lead） | lead | 2026-11-22 | ☐ 通过　☑ 阻塞（原因：真实硬件验收、无开发环境干净机未完成；回滚演练、24h 连续观察、心跳管道缺陷修复均已于 2026-11-22 闭环） |
+| 发布负责人（lead） | lead | 2026-11-22 | ☐ 通过　☑ 阻塞（原因：真实硬件验收（P0-06）未完成；干净机 P0-05 已完成除串口相关两项外的全部验收，`T4-COM1` 与 `T9 数据链路` 因该机无 COM 口未执行） |
 | 质量复核（ZCode） | ZCode | 2026-11-17 | ☑ 通过（备注：文档口径与证据逐条核对）　☐ 阻塞 |
 
 > 全部通过后方可发布 Release 并打 tag；任何一项阻塞即冻结发布，修复后重新走查本表。
@@ -146,3 +146,20 @@
 | E · 四场景回归（修复后，同一套发布二进制） | A 正常（无冒充者）70 s：**1 个 PID**，不被杀；B 冒充者占用**派生名**：仍 **1 个 PID**（失效安全生效，未杀健康进程）；C 冒充者占用**旧写死名**：**1 个 PID**（名字已不同，无影响）；D 强杀主程序：**2 个 PID**，2 s 内拉起新 PID（Watchdog 保护未退化） |
 | F · 新候选包 | `SmartEdgeHMI-1.2.0-win-x64.zip`，82,066,546 字节 / 78.26 MB，SHA256 `76e9641a…07f681`，构建自 `8952e46`；包内 `SmartEdgeHMI.exe` 与 `SmartEdgeHMI.Watchdog.exe` 的 `ProductVersion` 均为 `1.2.0+8952e46…`（SHA256 见 §7） |
 | G · 遗留风险 | 心跳报文仍无鉴权；知道派生规则且与被监视程序同目录的进程理论上仍可冒充或吸收心跳（已写入 Release Notes 已知问题 8） |
+
+### 2026-11-22 干净机验收（P0-05，`干净机`）
+
+| 项 | 口径 |
+| --- | --- |
+| 机器 | Windows 10 Pro 22H2（普通用户，非管理员）；**无 .NET SDK、无 .NET 8 运行时**（仅有 .NET 10 desktop 运行时）；**无任何 COM 口**；装有**第三方安全软件 且全程运行、未加白** |
+| T1 包完整性 | **通过**：82,066,546 B；SHA256 `76E9641A…07F681` 与 `.sha256`、交接信息三方一致；解压 511 文件 / 13 目录 |
+| T2 无 .NET 前提 | **通过（限定）**：无 SDK、无 .NET 8；候选包 `includedFrameworks` 为 8.0.34 self-contained，启动成功（该机并非"绝对没有任何 .NET"，已如实注明） |
+| T3 首启 | **通过**：进程创建到主窗口 **1.364 s**；无应用错误框；`settings.json` 与日志自动生成 |
+| T4 设置落盘 | **通过（替代口径）**：波特率 115200→9600、阈值 60→65（默认 60，65 必来自落盘）；退出码 0；重启后保留；全量日志 0 命中 `保存通信设置失败` / `settings.json.tmp` / `UnauthorizedAccessException` / `Access is denied`。**T4-COM1 未执行**（该机端口下拉为空且不可编辑） |
+| T5 日志 | **通过**：`%LOCALAPPDATA%\SmartEdgeHMI\logs\log-20261122.txt`；Information；0 ERR / 0 WRN / 0 DBG |
+| T6 双开 | **通过**：弹窗标题「系统提示」、正文「SmartEdgeHMI 系统已在运行中, 请勿重复启动！」；第二实例退出、第一实例存活 |
+| T7 Watchdog | **通过**：管道名 `SmartEdgeHMI_Watchdog_Pipe_0abb82f50d5a9a77`（**我方按工作目录独立复算，逐字符一致**）；强杀主程序后 **0.26 s** 拉起新 PID 并重新连接管道 |
+| T8 包审计 | **通过**：511 文件（503 `.dll` / 5 `.json` / 3 `.exe`），0 个 `.cs/.csproj/.sln/.pdb/.js/.map/secrets.h`；两 EXE 产品版本 `1.2.0+8952e46…`；`NotSigned` |
+| T9 数据链路 | **未执行**（无串口设备；按要求未安装驱动或虚拟串口） |
+| 关键结论 | 写盘失败的根因是**运行目录的完整性级别**而非杀软：从低完整性目录启动时进程为 Low，无法写中完整性的 `%LOCALAPPDATA%`；同一台机器换到桌面普通目录后设置写入、重启保留、日志全部正常，第三方安全软件全程运行未拦截 |
+| 回传缺件 | 报告引用的 `SmartEdgeHMI-acceptance-return\`（含 `localappdata-SmartEdgeHMI\`、`package-audit.txt`、`low-integrity-diagnosis.txt`）未随报告回传；**可独立复核的项（包哈希、包内容 511/0、管道名复算）已由本机重算并一致**，日志级证据仍缺原件 |
