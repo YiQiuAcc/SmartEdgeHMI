@@ -4,6 +4,9 @@ public class ConnectionSettings
 {
     public string ComPort { get; set; } = string.Empty;
     public int BaudRate { get; set; } = 115200;
+
+    // string 而非枚举: settings.json 需人可读, 且旧文件缺该键时反序列化保持默认值 "JSON"
+    public string Protocol { get; set; } = "JSON";
 }
 
 public class ModbusSettings

@@ -1,3 +1,4 @@
+using System.IO.Ports;
 using Microsoft.Extensions.DependencyInjection;
 using SmartEdgeHMI.Models.Messages;
 using SmartEdgeHMI.Protocols.Transports.Serial;
@@ -25,4 +26,33 @@ public class SerialPortServiceTests
 
         Assert.DoesNotContain(stateEvents, e => e.State == ConnectionState.Connected);
     }
+
+    [Fact]
+    public void IsOwnedEntry_SameInstance_ReturnsTrue()
+    {
+        using SerialPortService.PortContext ctx = CreateContext();
+
+        Assert.True(SerialPortService.IsOwnedEntry(ctx, ctx));
+    }
+
+    [Fact]
+    public void IsOwnedEntry_DifferentInstances_ReturnsFalse()
+    {
+        // 手动重连换新 ctx 后, 旧任务收尾不得误拆新连接: 引用不等即不归自己管
+        using SerialPortService.PortContext current = CreateContext();
+        using SerialPortService.PortContext candidate = CreateContext();
+
+        Assert.False(SerialPortService.IsOwnedEntry(current, candidate));
+    }
+
+    [Fact]
+    public void IsOwnedEntry_CurrentNull_ReturnsFalse()
+    {
+        using SerialPortService.PortContext candidate = CreateContext();
+
+        Assert.False(SerialPortService.IsOwnedEntry(null, candidate));
+    }
+
+    private static SerialPortService.PortContext CreateContext()
+        => new(new SerialPort(), new CancellationTokenSource());
 }

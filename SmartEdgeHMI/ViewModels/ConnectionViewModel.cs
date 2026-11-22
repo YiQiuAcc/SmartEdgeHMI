@@ -63,6 +63,7 @@ public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
         LocalizationService.Instance.LanguageChanged += RefreshStatusText;
 
         LoadSavedSettings();
+        TryAutoConnectOnStartup();
     }
 
     private void OnStateChanged(string portName, ConnectionState state)
@@ -123,11 +124,26 @@ public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
             if (conn.BaudRate > 0)
                 SelectedBaudRate = conn.BaudRate.ToString();
             ModbusSlaveId = _settingsService.Current.Modbus.SlaveAddress;
+            SelectedProtocol = ParseProtocol(conn.Protocol);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "加载保存的通信设置失败");
         }
+    }
+
+    /// <summary>把持久化的协议字符串解析回枚举; 空串/缺键/非法值(含数字串)一律回退 JSON(现状默认), 不抛异常</summary>
+    internal static CommunicationProtocol ParseProtocol(string? stored)
+    {
+        if (string.IsNullOrWhiteSpace(stored)) return CommunicationProtocol.JSON;
+        return stored.Trim() switch
+        {
+            var s when string.Equals(s, nameof(CommunicationProtocol.JSON), StringComparison.OrdinalIgnoreCase)
+                => CommunicationProtocol.JSON,
+            var s when string.Equals(s, nameof(CommunicationProtocol.Modbus), StringComparison.OrdinalIgnoreCase)
+                => CommunicationProtocol.Modbus,
+            _ => CommunicationProtocol.JSON
+        };
     }
 
     partial void OnSelectedPortChanged(string? value)
@@ -153,6 +169,45 @@ public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
         _settingsService.Current.Modbus.SlaveAddress = value;
         _ = SaveSettingsAsync();
     }
+
+    partial void OnSelectedProtocolChanged(CommunicationProtocol value)
+    {
+        _settingsService.Current.Connection.Protocol = value.ToString();
+        _ = SaveSettingsAsync();
+    }
+
+    /// <summary>自动连接判定: 上次使用的端口仍在系统枚举里且尚未连接时才允许, 纯静态便于单测</summary>
+    internal static bool ShouldAutoConnect(string? savedPort, IReadOnlyCollection<string> availablePorts, bool alreadyConnected)
+        => !string.IsNullOrEmpty(savedPort)
+           && availablePorts.Contains(savedPort)
+           && !alreadyConnected;
+
+    /// <summary>启动后尝试一次自动连接上次使用的串口; 不满足条件只记 INFO, 保持未连接</summary>
+    private async Task TryAutoConnectAsync()
+    {
+        try
+        {
+            string? savedPort = _settingsService.Current.Connection.ComPort;
+            string[] availablePorts = _serialPortService.GetAvailablePortNames() ?? [];
+            bool alreadyConnected = savedPort is not null && _connectedPorts.Contains(savedPort);
+            if (!ShouldAutoConnect(savedPort, availablePorts, alreadyConnected))
+            {
+                if (!string.IsNullOrEmpty(savedPort))
+                    Log.Information("[AutoConnect] 上次使用的串口 {Port} 当前不在可用列表, 保持未连接", savedPort);
+                return;
+            }
+
+            Log.Information("[AutoConnect] 自动连接上次使用的串口 {Port}", savedPort);
+            await OpenPortAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[AutoConnect] 自动连接失败, 保持未连接");
+        }
+    }
+
+    // 后台线程触发, 不阻塞 UI 启动; 此时 _connectedPorts 尚无任何写入方(状态事件未发生), 判定读取无竞态
+    private void TryAutoConnectOnStartup() => _ = Task.Run(TryAutoConnectAsync);
 
     private async Task SaveSettingsAsync()
     {

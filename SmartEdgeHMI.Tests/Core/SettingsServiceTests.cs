@@ -41,6 +41,44 @@ public class SettingsServiceTests : IDisposable
         var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(filePath));
         Assert.NotNull(loaded);
         Assert.Equal(string.Empty, loaded!.Connection.ComPort);
+        Assert.Equal("JSON", loaded.Connection.Protocol);
+    }
+
+    /// <summary>settings.json 中的协议应被加载并回存 (HW-06: 重启后不得回落 JSON)</summary>
+    [Fact]
+    public async Task 协议_从设置文件加载并回存Modbus()
+    {
+        string settingsDirectory = Path.Combine(_tempRoot, "persist");
+        Directory.CreateDirectory(settingsDirectory);
+        string filePath = Path.Combine(settingsDirectory, "settings.json");
+        await File.WriteAllTextAsync(filePath,
+            """{ "Connection": { "ComPort": "COM4", "BaudRate": 115200, "Protocol": "Modbus" } }""",
+            TestContext.Current.CancellationToken);
+
+        var service = new SettingsService(new ConfigurationBuilder().Build(), settingsDirectory);
+        Assert.Equal("Modbus", service.Current.Connection.Protocol);
+
+        service.Current.Connection.Protocol = "JSON";
+        await service.SaveAsync(CancellationToken.None);
+
+        var reloaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(filePath));
+        Assert.NotNull(reloaded);
+        Assert.Equal("JSON", reloaded!.Connection.Protocol);
+    }
+
+    /// <summary>旧版本 settings.json 缺 Protocol 键时应容忍: 保持默认 JSON, 不抛异常</summary>
+    [Fact]
+    public void 协议_旧文件缺键_容忍并保持默认JSON()
+    {
+        string settingsDirectory = Path.Combine(_tempRoot, "legacy");
+        Directory.CreateDirectory(settingsDirectory);
+        File.WriteAllText(Path.Combine(settingsDirectory, "settings.json"),
+            """{ "Connection": { "ComPort": "COM4", "BaudRate": 115200 } }""");
+
+        var service = new SettingsService(new ConfigurationBuilder().Build(), settingsDirectory);
+
+        Assert.Equal("COM4", service.Current.Connection.ComPort);
+        Assert.Equal("JSON", service.Current.Connection.Protocol);
     }
 
     public void Dispose()

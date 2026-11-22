@@ -29,7 +29,8 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
 
     public event Action<string, ConnectionState>? StateChanged;
 
-    private sealed class PortContext(SerialPort port, CancellationTokenSource cts) : IDisposable
+    // internal 而非 private: IsOwnedEntry 需以本类型为参数并供测试项目直接断言引用判定
+    internal sealed class PortContext(SerialPort port, CancellationTokenSource cts) : IDisposable
     {
         public SerialPort Port { get; set; } = port;
         public CancellationTokenSource Cts { get; set; } = cts;
@@ -103,10 +104,17 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
 
         while (!_disposed && attempt < MaxReconnectAttempts)
         {
-            if (attempt > 0 && !await HandleReconnectDelayAndOpenAsync(portName, baudRate, ctx, attempt))
+            if (attempt > 0)
             {
-                attempt++;
-                continue;
+                bool reopened = await HandleReconnectDelayAndOpenAsync(portName, baudRate, ctx, attempt);
+                if (!reopened)
+                {
+                    // 上下文已被取消 = 本会话已被手动重连的新连接或用户断开取代:
+                    // 立即退出, 不消耗 attempt, 也不走"放弃重连 + Error"的故障收尾
+                    if (_disposed || ctx.Token.IsCancellationRequested) return;
+                    attempt++;
+                    continue;
+                }
             }
 
             // 等待串口稳定
@@ -121,7 +129,7 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
             StateChanged?.Invoke(portName, ConnectionState.Error);
         }
 
-        FinalizePortState(portName, attempt);
+        FinalizePortState(portName, ctx, attempt);
     }
 
     private async Task<bool> ReadLoopAsync(string portName, PortContext ctx)
@@ -198,8 +206,6 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
         try
         {
             newPort.Open();
-            ctx.Port = newPort;
-            return true;
         }
         catch (Exception ex)
         {
@@ -207,6 +213,17 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
             CloseAndDisposePort(newPort);
             return false;
         }
+
+        // 打开成功后再核对取消: 若等待/打开期间会话已被取代或用户断开,
+        // 不能把刚打开的端口挂进已作废的上下文(否则端口随旧 ctx 无人接管)
+        if (ctx.Token.IsCancellationRequested)
+        {
+            CloseAndDisposePort(newPort);
+            return false;
+        }
+
+        ctx.Port = newPort;
+        return true;
     }
 
     private static async Task<bool> WaitForStabilizationAsync(PortContext ctx)
@@ -230,7 +247,7 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
         return ok;
     }
 
-    private void FinalizePortState(string portName, int attempt)
+    private void FinalizePortState(string portName, PortContext ctx, int attempt)
     {
         if (attempt >= MaxReconnectAttempts)
         {
@@ -238,11 +255,20 @@ public class SerialPortService(IServiceProvider serviceProvider) : ISerialPortSe
             StateChanged?.Invoke(portName, ConnectionState.Error);
         }
 
-        if (_activePorts.TryRemove(portName, out var removed))
+        // 只拆除属于自己会话的注册项: 手动重连时旧任务可能晚于新注册到达收尾,
+        // 字典里已是新连接的 ctx, 按名字无条件 TryRemove 会把刚打开的新串口关掉
+        if (_activePorts.TryGetValue(portName, out var current) && IsOwnedEntry(current, ctx))
         {
-            CleanupContext(removed);
+            if (_activePorts.TryRemove(portName, out var removed))
+            {
+                CleanupContext(removed);
+            }
         }
     }
+
+    /// <summary>收尾归属判定: 用引用相等确认字典当前注册项仍属于传入的会话上下文, current 为空视为不属于</summary>
+    internal static bool IsOwnedEntry(PortContext? current, PortContext candidate)
+        => ReferenceEquals(current, candidate);
 
     private static int ReadFromPortSafe(SerialPort port, byte[] buffer, CancellationToken cancellationToken, out bool shouldExit)
     {
