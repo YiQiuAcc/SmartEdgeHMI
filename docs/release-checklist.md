@@ -50,19 +50,19 @@
 
 ## 7. 打包与校验和
 
-- [x] 打包执行：`pwsh tools/package.ps1 -Version {版本}`（publish / 压缩 / SHA256 一键完成，产物输出至 `dist/`）（2026-11-22 11:39 实测 `pwsh tools/package.ps1 -Version 1.2.0`，构建来源 `main` @ `8952e46`，产出新候选包；旧候选包 `f8b3997` 作废，见下方 SHA256 项）
-- [x] 产物命名：`SmartEdgeHMI-{版本}-win-x64.zip`（脚本按 `-Version` / `-Runtime` 生成，tag 前缀 `v` 已去除）（产物 `SmartEdgeHMI-1.2.0-win-x64.zip`，82,066,546 字节 / 78.26 MB；新包根文件 / 条目数未逐项复测）
+- [x] 打包执行：`pwsh tools/package.ps1 -Version {版本}`（publish / 压缩 / SHA256 一键完成，产物输出至 `dist/`）（2026-11-22 15:13 实测 `pwsh tools/package.ps1 -Version 1.2.0`，构建来源 `main` @ `e1a3240`，CI run `44997763278` 在该提交上 success；此前 `8952e46` 候选包作废，见下方 SHA256 项）
+- [x] 产物命名：`SmartEdgeHMI-{版本}-win-x64.zip`（脚本按 `-Version` / `-Runtime` 生成，tag 前缀 `v` 已去除）（产物 `SmartEdgeHMI-1.2.0-win-x64.zip`，82,067,265 字节 / 78.27 MB）
 - [x] 包内容核对：主程序 exe + Watchdog exe + `appsettings.json` + 运行所需依赖；不含源码 / 测试 / 基准工程 / 模拟器（含 `SmartEdgeHMI.exe` / `SmartEdgeHMI.Watchdog.exe` / `appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h`）
 - [x] 干净目录（及一台无开发环境的机器）解压后可直接启动（本机空白目录解压后直接启动通过；**干净机已于 2026-11-22 验收通过**：Windows 10 Pro 22H2 / `干净机`，无 .NET SDK、无 .NET 8 运行时，解压 511 文件后启动 1.364 s 出现主窗口，见 §12 与 Release Notes 已知问题 2）
 - [x] SHA256 校验和（脚本自动写入 `dist/<zip>.sha256`，格式 `<hash>  <文件名>`），记录到 Release Notes：
-      `SHA256: 76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681`（旧候选包 `c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` / `f8b3997` 作废，`24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `fb69bbe` 作废；更早 `99e8a5e9…34a1` / `ae10336` 已作废），2026-11-22 11:39 重建时由脚本记录；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验
+      `SHA256: 6fc86aa33f8a52c81f0504ff44f2f9cb85276017e1e7a3c378b8c72428876077`（旧候选包 `76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681` / `8952e46` 作废，`c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` / `f8b3997` 作废，`24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `fb69bbe` 作废；更早 `99e8a5e9…34a1` / `ae10336` 已作废），2026-11-22 15:13 重建时由脚本记录；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验
 
 ## 8. Release Notes
 
 - [x] 三段齐全：新增 / 修复 / 已知问题（[release-notes-v1.2.0.md](release-notes-v1.2.0.md) §2 / §3 / §5）
 - [x] 修复项覆盖：串口关闭 CTS 竞态（`30390aa`）及相应异常观察器（Release Notes §3）
 - [x] 性能结论引用基准实测数字，不使用"60FPS""零分配"等未实测泛化表述（数字全部出自 performance-benchmarks.md §8.3 / §8.5 / §9；趋势查询如实写"耗时持平"）
-- [x] 硬件验收状态如实标注（未执行 / 已执行，链接 [hardware-validation.md](hardware-validation.md)）（Release Notes 已知问题 1：未执行）
+- [x] 硬件验收状态如实标注（未执行 / 已执行，链接验收记录）（**已执行并复验**：2026-11-22 真机 NodeMCU v2 + CH340/COM4 两轮，6 项中 5 项通过（带备注）、HW-06 第一轮失败并暴露 3 条 P1，修复（`e1a3240`）后第二轮通过；记录见 [hardware-validation-2026-11-22.md](hardware-validation-2026-11-22.md)）
 - [x] 升级 / 回滚说明包含数据库备份提示（Release Notes §6 / §7）
 
 ## 9. 回滚方案（含数据库备份）
@@ -78,14 +78,14 @@
 - [ ] 从 Release 页下载发布包 → 校验 SHA256 → 解压启动成功（未执行：Release 页尚未发布）
 - [x] 连接模拟器（或虚拟串口）：数据入库、图表渲染、指令下发（阈值 / 复位 / LED）、报警触发与确认各验证 1 次（本机实测：JSON 模式 COM1↔COM2 虚拟串口对，遥测以约 1 行/秒入库（1200 → 1245 行）、当前值实时刷新 24.4~25.3 °C；「设备紧急复位」下发后模拟器收到 `{"action":3}` 并执行「设备复位 -> 恢复初始状态」；阈值滑杆 30→20 生效并落盘。**报警触发 / 确认已完成**：修复后 3 轮 E2E，报警 `Id=3` 走完 `UNACK → ACK → NORMAL` 且 `ClearedAt` 落库，应用日志三行齐全，按钮「一键确认全部」恢复后自动禁用（模拟器故障窗口注入，见 §12 第二轮记录））
 - [x] 断开 → 重连 1 次，日志无未观察异常（`ObserveAndLogAsync` 无 ERROR 输出）（本机实测：断开后「串口 COM1 已断开」，重连后「已打开串口 COM1, 波特率 115200」→ 恢复「已连接 COM1」并继续收数；无未观察 Task 异常；日志中 `保存通信设置失败` / `设备连接后自动下发阈值配置失败` 均源于本机对未签名 exe 的 `%LOCALAPPDATA%` 写入拦截，见 §12）
-- [x] 强杀主进程 → Watchdog 重启 → 自动恢复 1 次（本机实测强杀后 1.8 s 重启新 PID，心跳恢复）
+- [x] 强杀主进程 → Watchdog 重启 → 自动恢复 1 次（**真机实测（`e1a3240`）**：强杀 pid=21344 后看门狗 1.9 s 拉起 pid=4720，自动连 COM4 并恢复 Modbus 轮询，**从强杀到恢复采样共 7.8 s、零人工操作、协议未回落**；第一轮同一操作用了 1.2 s 重启但**不自动重连、协议回落 JSON**，即为 HW-06 失败点，见 [hardware-validation-2026-11-22.md](hardware-validation-2026-11-22.md) §5.3）
 - [x] smoke 结果（含时间 / 机器）回填到 Release 说明或本表附件（回填见本表 §12 本机走查记录）
 
 ## 11. 责任人与签字
 
 | 角色 | 责任人 | 日期 | 结论 |
 | --- | --- | --- | --- |
-| 发布负责人（lead） | lead | 2026-11-22 | ☐ 通过　☑ 阻塞（原因：仅剩 P0-06 真实 ESP8266 硬件验收未完成；P0-05 干净机已完成，其串口两项经本机虚拟串口替代覆盖） |
+| 发布负责人（lead） | lead | 2026-11-22 | ☑ 通过　☐ 阻塞（P0-01～P0-08 全部完成：P0-06 于 2026-11-22 真机执行两轮，第一轮 HW-06 失败并暴露 3 条 P1，修复 `e1a3240` 后第二轮六项全过含 2 小时浸泡；P0-05 干净机已完成，其串口两项由本机虚拟串口替代覆盖；遗留 F-4 / F-6 为已知限制，已转入 v1.2.1 的 P1-04 / P1-05） |
 | 质量复核（ZCode） | ZCode | 2026-11-17 | ☑ 通过（备注：文档口径与证据逐条核对）　☐ 阻塞 |
 
 > 全部通过后方可发布 Release 并打 tag；任何一项阻塞即冻结发布，修复后重新走查本表。
@@ -174,3 +174,17 @@
 | T4-COM1 | **通过**：移走 `settings.json` 使基线为空 → 界面下拉选 `COM1` → `settings.json` **立即**变为 `"ComPort": "COM1"`（选择即保存，不等退出）→ 正常退出 `退出码: 0`、文件仍为 COM1 → 重启后界面端口显示 **COM1** |
 | T9 | **通过**：模拟器占住 `COM2`（外部试打开返回 `Access is denied`）；应用连 `COM1` 后 `[SerialPort] 已打开串口 COM1, 波特率 115200`，并 `[JSON] 下发阈值至 COM1: 60°C`；36 秒内 `TelemetryHistory` **0 → 37 行**（约 1 行/秒）；界面 **已连接 COM1**、曲线 24.0–25.4 °C、当前值 24.8 °C；退出码 0；当日日志 124 行 **0 ERR / 0 WRN**；`journal_mode=wal` |
 | 证据 | 本机 `local-serial-20261122\`（含 `T9-connected.png`、`T4-02-restart-persisted.png`、`app-log-after-T9.txt`、`sim-stdout.log`、`SmartEdgeHMI.db`，不入库） |
+
+### 2026-11-22 真实硬件验收两轮（P0-06 · NodeMCU v2 + CH340 / COM4）
+
+> 记录全文见 [hardware-validation-2026-11-22.md](hardware-validation-2026-11-22.md)。这里只放结论与关键数字。
+
+| 项 | 口径 |
+| --- | --- |
+| 第一轮构建 | `8952e46` 候选包；固件由 `Firmware/` 本地编译烧录（309,984 B，Hash 校验通过） |
+| 第一轮结果 | 5 项通过（带备注）、**HW-06 失败**：看门狗 1.2 s 重启成功，但协议回落 JSON 且不自动连串口，系统静默不采数；另暴露重连竞态（打开成功与"放弃重连"同毫秒、遥测永久停住）与两条协议/能力缺口 |
+| 修复 | 提交 `e1a3240`（协议持久化 / 启动自动连接 / 重连竞态），新增 21 个单测，129 全绿；CI run `44997763278` success |
+| 第二轮构建 | `e1a3240`，包 82,067,265 B / SHA256 `6fc86aa3…876077`，两 exe `ProductVersion = 1.2.0+e1a3240…` |
+| 第二轮结果 | **六项全部通过（带备注）**：HW-06 从强杀到 Modbus 轮询恢复 **7.8 s 零人工操作**；HW-02 含竞态回归无故障误报；HW-05 断电后回到 25.1–25.4 °C / 43.1–43.3 %；HW-01 **125 分钟 / 7,695 行 / 每分钟 58–62 行无中断 / 零新增日志** |
+| 遗留已知限制 | F-4 阈值只写不可回读（FC03 addr2 读的是状态位），该条**不可验证**阈值默认值；F-6 上位机无 LED 指令，验收须用探针发帧。两项转入 v1.2.1（P1-04 / P1-05），验收模板已标注规避口径 |
+| 证据 | 本机 `hw-accept-20261122\`（`ACCEPTANCE-RECORD.md`、`soak-fixed\soak-samples.csv` 与 `soak-summary.txt`、多张截图、固件编译与烧录日志，不入库） |
