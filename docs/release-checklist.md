@@ -85,7 +85,7 @@
 
 | 角色 | 责任人 | 日期 | 结论 |
 | --- | --- | --- | --- |
-| 发布负责人（lead） | lead | 2026-11-22 | ☐ 通过　☑ 阻塞（原因：真实硬件验收（P0-06）未完成；干净机 P0-05 已完成除串口相关两项外的全部验收，`T4-COM1` 与 `T9 数据链路` 因该机无 COM 口未执行） |
+| 发布负责人（lead） | lead | 2026-11-22 | ☐ 通过　☑ 阻塞（原因：仅剩 P0-06 真实 ESP8266 硬件验收未完成；P0-05 干净机已完成，其串口两项经本机虚拟串口替代覆盖） |
 | 质量复核（ZCode） | ZCode | 2026-11-17 | ☑ 通过（备注：文档口径与证据逐条核对）　☐ 阻塞 |
 
 > 全部通过后方可发布 Release 并打 tag；任何一项阻塞即冻结发布，修复后重新走查本表。
@@ -163,3 +163,14 @@
 | T9 数据链路 | **未执行**（无串口设备；按要求未安装驱动或虚拟串口） |
 | 关键结论 | 写盘失败的根因是**运行目录的完整性级别**而非杀软：从低完整性目录启动时进程为 Low，无法写中完整性的 `%LOCALAPPDATA%`；同一台机器换到桌面普通目录后设置写入、重启保留、日志全部正常，第三方安全软件全程运行未拦截 |
 | 回传证据 | **齐备**：`SmartEdgeHMI-acceptance-return-20261122.zip`（45 个条目）含 `localappdata-SmartEdgeHMI\`（`settings.json` 原件 `BaudRate=9600` / `DefaultThreshold=65`、两份日志原件均为 **0 ERR / 0 WRN / 0 DBG**）、`extraction-logs\watchdog-20261122.log` 原件（含派生管道名与"退出→重启→重连"完整时间线）、`package-audit.txt`、`low-integrity-diagnosis.txt`、`invalid-lowil-runs\`（三次失败运行原件）、6 张关键截图与报告全文。本机已解包复核，与报告逐项一致 |
+
+### 2026-11-22 串口两项 · 本机虚拟串口替代覆盖（`T4-COM1`、`T9`）
+
+> 干净机 `干净机` 无任何 COM 口且不可加装，这两项改在本机用 ELTIMA 虚拟串口对 `COM1↔COM2` + 项目自带 Node 模拟器覆盖。**边界：这覆盖的是串口功能，替代不了"无开发环境可运行"这一干净机结论（后者已由 干净机 独立完成）；也不能替代真实设备的电气特性（属 P0-06）。**
+
+| 项 | 口径 |
+| --- | --- |
+| 被测对象 | `dist/publish/1.2.0/`（与候选包同一构建，`ProductVersion = 1.2.0+8952e46…`） |
+| T4-COM1 | **通过**：移走 `settings.json` 使基线为空 → 界面下拉选 `COM1` → `settings.json` **立即**变为 `"ComPort": "COM1"`（选择即保存，不等退出）→ 正常退出 `退出码: 0`、文件仍为 COM1 → 重启后界面端口显示 **COM1** |
+| T9 | **通过**：模拟器占住 `COM2`（外部试打开返回 `Access is denied`）；应用连 `COM1` 后 `[SerialPort] 已打开串口 COM1, 波特率 115200`，并 `[JSON] 下发阈值至 COM1: 60°C`；36 秒内 `TelemetryHistory` **0 → 37 行**（约 1 行/秒）；界面 **已连接 COM1**、曲线 24.0–25.4 °C、当前值 24.8 °C；退出码 0；当日日志 124 行 **0 ERR / 0 WRN**；`journal_mode=wal` |
+| 证据 | 本机 `local-serial-20261122\`（含 `T9-connected.png`、`T4-02-restart-persisted.png`、`app-log-after-T9.txt`、`sim-stdout.log`、`SmartEdgeHMI.db`，不入库） |
