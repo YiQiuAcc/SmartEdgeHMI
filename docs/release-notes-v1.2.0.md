@@ -1,12 +1,12 @@
 # SmartEdgeHMI v1.2.0 发布说明
 
 > 版本 1.2.0 ｜ 日期 2026-11-21 ｜ 目标框架 .NET 8 (win-x64, self-contained)
-> 状态：**候选包已重建（`f8b3997`），未发布**（阻塞项见「已知问题」）
-> 旧候选包（`fb69bbe` / `24fa4004…b168`；更早 `ae10336` / `99e8a5e9…`）与其结论作废。
+> 状态：**候选包已重建（`8952e46`，CI 在该提交上全绿），未发布**（阻塞项见「已知问题」）
+> 旧候选包（`f8b3997` / `c02c87aa…e230b`；更早 `fb69bbe` / `24fa4004…b168`、`ae10336` / `99e8a5e9…`）与其结论作废。
 
 ## 1. 摘要
 
-本版本把数据层三类高频查询（报警历史 / 报警上下文 / 趋势）从"整表读进内存"改为 SQL 查询下推与分桶取样，并补 `(DeviceId, Timestamp)` 复合索引，长期运行的大库不再拖垮内存与 GC；新增遥测数据保留策略（默认 30 天，报警不删），库文件不再无限膨胀。发布工程化侧补齐 `tools/package.ps1` 一键打包（publish / zip / SHA256）、CI 覆盖率产物与漏洞扫描；应用侧新增启动配置校验（9 参数，坏配置拒绝启动）与日志批量裁剪。候选包已在本机完成桌面走查（启动冒烟 / 双开拦截 / Watchdog 强杀重启 / 旧库迁移 / 保留清理 / 包内容与校验和），**未打 tag、未发布**，阻塞项见 §5。
+本版本把数据层三类高频查询（报警历史 / 报警上下文 / 趋势）从"整表读进内存"改为 SQL 查询下推与分桶取样，并补 `(DeviceId, Timestamp)` 复合索引，长期运行的大库不再拖垮内存与 GC；新增遥测数据保留策略（默认 30 天，报警不删），库文件不再无限膨胀。发布工程化侧补齐 `tools/package.ps1` 一键打包（publish / zip / SHA256）、CI 覆盖率产物与漏洞扫描；应用侧新增启动配置校验（9 参数，坏配置拒绝启动）与日志批量裁剪；并修复了一处 Watchdog 心跳管道同名串台、导致健康主程序被反复强杀的可用性缺陷（见 §3 与 [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md)）。候选包已在本机完成桌面走查（启动冒烟 / 双开拦截 / Watchdog 强杀重启 / 旧库迁移 / 保留清理 / 包内容与校验和），**未打 tag、未发布**，阻塞项见 §5。
 
 ## 2. 新增
 
@@ -35,6 +35,7 @@
 | 首启写盘失败会中断启动 | 首启写盘失败不再中断启动：设置目录不可写时用内存默认值继续运行 | 提交 `60d8ebf` |
 | 首启默认串口名为非法值 `Sensor_01` | 默认串口名改为"未选择"，首启不再拿非法端口去连接 | 提交 `60d8ebf` |
 | 报警恢复后历史记录停留在「已确认」 | 报警恢复后历史记录不再停留在「已确认」，`ClearedAt` 正常落库 | 提交 `3ab7619` / `fb69bbe` |
+| Watchdog 心跳管道同名串台，健康主进程被反复强杀 | 管道名改为按被测程序所在目录派生（`SmartEdgeHMI_Watchdog_Pipe_<目录哈希>`），不同安装实例与开发构建互不串台；Watchdog 在心跳通道未建立时**不再**按「心跳超时」杀进程，改为降级告警。实测：修复前占用管道名时 75 秒内强杀 6 次；修复后同一场景 0 次，且强杀主程序仍能在 2 秒内被重新拉起 | [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md) |
 
 ## 4. 性能
 
@@ -56,7 +57,7 @@
 5. **趋势查询耗时与旧实现持平**：收益仅在内存分配（-99.1%）与长期稳定性，不存在"提速"（沿用 2026-11-17 基准结论）。
 6. **升级会按 30 天保留策略清理旧遥测**：升级后首次启动，数据保留任务会删除超过保留期（默认 30 天）的旧遥测。升级 / 回滚演练实测：v1.1.0 库中 60 行 2026-06-29 的遥测在升级到 1.2.0 后首次启动即被判为超期清理（报警按 `AlarmRetentionDays=0` 保留）。这是**策略行为，不是数据丢失**；如需保留旧遥测，请在升级前备份或调整保留配置（见 §6）。
 7. **`WatchdogHeartbeatClient.Dispose()` 不幂等**：重复调用会抛 `ObjectDisposedException`；当前仅在退出时调用一次，正常运行不受影响，计划 v1.2.1 修复。
-8. **心跳管道无鉴权**：心跳管道名 `SmartEdgeHMI_Watchdog_Pipe` 为全局命名管道且无鉴权，本机其他进程可占用该名（2026-11-21 观察期即被本机测试活动的假服务端短暂占用，主程序记 10 条心跳 WRN，见 [release-checklist.md §12](release-checklist.md)）。
+8. **心跳协议仍无鉴权（本版已消除同名串台，遗留风险如实披露）**：原固定全局管道名 `SmartEdgeHMI_Watchdog_Pipe` 在被他进程占用时，会导致 Watchdog 反复强杀健康主程序（实测 75 秒 6 次）；本版已改为按安装目录派生管道名，并让 Watchdog 在通道建立不起来时不再杀进程（见 §3 与 [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md)）。**遗留风险**：心跳报文仍无鉴权，知道派生规则、且与被监视程序同目录的进程理论上仍可冒充或吸收心跳；当前判为可接受，因为冒充者必须与安装目录同路径。
 
 ## 6. 升级说明
 
@@ -81,10 +82,10 @@
 | 项 | 值 |
 | --- | --- |
 | 产物 | `dist/SmartEdgeHMI-1.2.0-win-x64.zip` |
-| 大小 | 82,065,747 字节 / 78.26 MB（新包条目 / 根文件数未逐项复测） |
-| SHA256 | `c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` |
-| 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；旧候选包哈希 `24fa4004…b168`（`fb69bbe`）作废，更早 `99e8a5e9…34a1`（`ae10336`）已作废 |
-| 构建来源 | `main` @ `f8b3997`，`pwsh tools/package.ps1 -Version 1.2.0`（2026-11-22 00:36） |
+| 大小 | 82,066,546 字节 / 78.26 MB（新包条目 / 根文件数未逐项复测） |
+| SHA256 | `76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681` |
+| 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验。旧候选包 `c02c87aa…e230b`（`f8b3997`）、`24fa4004…b168`（`fb69bbe`）、`99e8a5e9…34a1`（`ae10336`）均已作废 |
+| 构建来源 | `main` @ `8952e46`，`pwsh tools/package.ps1 -Version 1.2.0`（2026-11-22 11:39）；CI run `44981622078` 在该提交上 success；包内 `SmartEdgeHMI.exe` 与 `SmartEdgeHMI.Watchdog.exe` 的 `ProductVersion` 均为 `1.2.0+8952e467109d7d50cae820f3a9bf500b1b6c5ef2` |
 | 包内容 | 含 `SmartEdgeHMI.exe`、`SmartEdgeHMI.Watchdog.exe`、`appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h`（旧包实测口径；新包未逐项复测，产品源码与 `fb69bbe` 零差异） |
 
 ## 9. 证据索引
@@ -93,15 +94,16 @@
 | --- | --- |
 | 性能数字唯一口径（查询下推 / .NET 8 复测 / 写放大） | [performance-benchmarks.md](performance-benchmarks.md)（§8.3 / §8.5 / §9） |
 | 本机桌面走查记录（第一轮 2026-11-17，启动 / 双开 / Watchdog / 迁移 / 保留清理；第二轮 2026-11-20/21，首启 / 日志 / 报警 E2E / 24h 观察起点；第三轮 2026-11-21/22，24 小时观察与升级 / 回滚演练） | [release-checklist.md §12](release-checklist.md) |
-| 24 小时连续观察 | **已完成，总判定 PASS-WITH-NOTES**（2026-11-22 `analyze-soak.ps1` 判定；唯一「需人工判断」项 = 10 条心跳 WRN，系测试活动污染日志基线；`soak.csv` 在本机 `soak-data\`，不入库） |
+| 24 小时连续观察 | **已完成，总判定 PASS-WITH-NOTES**（2026-11-22 `analyze-soak.ps1` 判定；唯一「需人工判断」项 = 10 条心跳 WRN —— 后经实验确认它们是**同名管道串台缺陷的症状**，本版已修复，见 [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md)；`soak.csv` 在本机 `soak-data\`，不入库） |
 | 项目现状、发布阻塞项与下一步计划 | [next-steps-v1.2.md §2 / §4](next-steps-v1.2.md) |
 | 硬件验收状态（六项均未执行） | [hardware-validation.md](hardware-validation.md) |
 | 数据保留策略说明 | [data-retention.md](data-retention.md) |
 | 串口 CTS 竞态复盘 | [postmortem-serial-dispose.md](postmortem-serial-dispose.md) |
+| Watchdog 心跳管道串台复盘 | [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md) |
 | 发布检查表（勾选状态与签字） | [release-checklist.md](release-checklist.md) |
-| 构建提交 | `f8b3997`（候选包构建时的 main HEAD；相对 `fb69bbe` 产品源码零差异，新增仅测试 / 工具 / 文档） |
+| 构建提交 | `8952e46`（候选包构建时的 main HEAD；相对上一候选 `f8b3997` 的产品代码差异仅本次 Watchdog 管道修复，见 §3） |
 | 基准时效依据 | `8dfcb40`（最后一次基准相关提交）之后 `SmartEdgeHMI/Data` 仅 `c4579d0` 新增保留服务，未触及 LTTB 与写入热路径，无需重跑基准 |
 | 旧库生成提交（v1.1.0 tag 不可编译，改用同 schema 旧库） | `3cb8a00` |
 | 串口修复提交 | `30390aa` |
-| CI run | `44772013652`（`fb69bbe`，success） |
+| CI run | `44981622078`（`8952e46`，success；与候选包构建提交一致） |
 | 打包脚本 | `tools/package.ps1` |

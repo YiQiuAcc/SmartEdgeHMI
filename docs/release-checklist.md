@@ -9,11 +9,11 @@
 - [x] 版本号确定（SemVer，如 v1.2.0），与 Release Notes / tag 名一致（版本 1.2.0）
 - [x] 发布分支为 `main`，工作区干净：`git status` 无未提交 / 未跟踪文件（文档提交后复核）
 - [ ] tag 指向本次已验证的提交，tag 名与版本一致（未打 tag：24h 观察与回滚演练已于 2026-11-22 闭环，仍待干净机与硬件验收后决定）
-- [x] CI 在该提交上全绿（restore / build / test / format 四步）（CI run 44772013652 / `fb69bbe`，success）
+- [x] CI 在该提交上全绿（restore / build / test / format 四步）（CI run `44981622078` / `8952e46`，success，**与候选包构建提交一致**。说明：上一候选包构建于 `f8b3997`，但该提交没有以自己的提交号为 key 的 CI 运行——上一轮 11 个提交一次性 push，GitHub 只为推送 head `bb64359` 起跑，这是本轮修掉的证据链断点；本轮改为每个提交单独推送，候选包提交与 CI 运行已一一对应）
 
 ## 2. 构建与测试
 
-- [x] `pwsh tools/package.ps1 -Version {版本}` 一键完成 test / publish / zip / SHA256（隐含 restore + build；勿用 `-SkipTests`；确需跳过时须另行补跑测试并记录），测试全绿，通过数：103（记录实际值；2026-11-22 `main` @ `f8b3997` 实测 `dotnet test -c Release`：103 通过 / 0 失败 / 0 跳过，92 → 99 → 103：报警写入侧 +7、Watchdog 心跳 +4；同日 00:36 新候选包由 `pwsh tools/package.ps1 -Version 1.2.0` 在 `f8b3997` 上产出，见 §7）
+- [x] `pwsh tools/package.ps1 -Version {版本}` 一键完成 test / publish / zip / SHA256（隐含 restore + build；勿用 `-SkipTests`；确需跳过时须另行补跑测试并记录），测试全绿，通过数：108（记录实际值；2026-11-22 `main` @ `8952e46` 实测 `dotnet test -c Release`：108 通过 / 0 失败 / 0 跳过，92 → 99 → 103 → 108：报警写入侧 +7、Watchdog 心跳 +4、管道名派生 +5；同日 11:39 新候选包由 `pwsh tools/package.ps1 -Version 1.2.0` 在 `8952e46` 上产出，见 §7）
 - [x] `dotnet format SmartEdgeHMI.sln --verify-no-changes --no-restore` 退出码 0（2026-11-21 实测退出码 0）
 
 ## 3. 基准数据是否更新
@@ -45,16 +45,17 @@
 - [x] 正常运行：3s 间隔心跳持续，Watchdog 不误杀（2026-11-17 实测 18 秒内 9 次心跳无误差；本轮未复测）
 - [x] 强杀主进程 → Watchdog 在 10s 心跳超时内重启主程序 → 心跳恢复（2026-11-17 实测强杀后 1.8 s 重启新 PID，心跳恢复，日志「HMI 主进程已退出 (ExitCode: -1), 正在重启」；本轮未复测）
 - [x] 防呆启动：双开主程序时第二个实例被 Mutex 拦截（2026-11-17 实测第二实例弹「系统提示 / SmartEdgeHMI 系统已在运行中, 请勿重复启动！」→ 退出码 0，首实例存活；本轮未复测）
+- [x] 心跳管道被其他进程占用时不得反复强杀健康主进程（2026-11-22 四场景回归：A 正常场景 1 个 PID 不被杀；B 冒充者占用**派生名**仍不被杀（失效安全生效）；C 冒充者占用**旧写死名**完全无影响；D 强杀主程序后 2 s 内拉起新 PID（保护未退化）。修复前同一场景 75 秒内强杀 6 次，见 [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md)）
 - [ ] 重启后串口重开成功（无端口占用残留导致的连续失败）（无真实串口，未验证）
 
 ## 7. 打包与校验和
 
-- [x] 打包执行：`pwsh tools/package.ps1 -Version {版本}`（publish / 压缩 / SHA256 一键完成，产物输出至 `dist/`）（2026-11-22 00:36 实测 `pwsh tools/package.ps1 -Version 1.2.0`，构建来源 `main` @ `f8b3997`，产出新候选包；旧候选包 `fb69bbe` 作废，见下方 SHA256 项）
-- [x] 产物命名：`SmartEdgeHMI-{版本}-win-x64.zip`（脚本按 `-Version` / `-Runtime` 生成，tag 前缀 `v` 已去除）（产物 `SmartEdgeHMI-1.2.0-win-x64.zip`，82,065,747 字节 / 78.26 MB；新包根文件 / 条目数未逐项复测）
+- [x] 打包执行：`pwsh tools/package.ps1 -Version {版本}`（publish / 压缩 / SHA256 一键完成，产物输出至 `dist/`）（2026-11-22 11:39 实测 `pwsh tools/package.ps1 -Version 1.2.0`，构建来源 `main` @ `8952e46`，产出新候选包；旧候选包 `f8b3997` 作废，见下方 SHA256 项）
+- [x] 产物命名：`SmartEdgeHMI-{版本}-win-x64.zip`（脚本按 `-Version` / `-Runtime` 生成，tag 前缀 `v` 已去除）（产物 `SmartEdgeHMI-1.2.0-win-x64.zip`，82,066,546 字节 / 78.26 MB；新包根文件 / 条目数未逐项复测）
 - [x] 包内容核对：主程序 exe + Watchdog exe + `appsettings.json` + 运行所需依赖；不含源码 / 测试 / 基准工程 / 模拟器（含 `SmartEdgeHMI.exe` / `SmartEdgeHMI.Watchdog.exe` / `appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h`）
 - [x] 干净目录（及一台无开发环境的机器）解压后可直接启动（本机空白目录解压后直接启动通过；无 .NET 环境机器未验证，见 §12 与 Release Notes 已知问题 2）
 - [x] SHA256 校验和（脚本自动写入 `dist/<zip>.sha256`，格式 `<hash>  <文件名>`），记录到 Release Notes：
-      `SHA256: c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b`（旧候选包 `24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `fb69bbe` 作废；更早 `99e8a5e9…34a1` / `ae10336` 已作废），2026-11-22 00:36 重建时由脚本记录
+      `SHA256: 76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681`（旧候选包 `c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` / `f8b3997` 作废，`24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `fb69bbe` 作废；更早 `99e8a5e9…34a1` / `ae10336` 已作废），2026-11-22 11:39 重建时由脚本记录；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验
 
 ## 8. Release Notes
 
@@ -69,7 +70,8 @@
 - [x] 上一版本安装包与校验和仍可下载（当前：v1.1.0 zip 存档于 GitHub Releases）（2026-11-22 演练取用 GitHub Release `v1.1.0` 资产真包：104,128,612 字节，digest `9dcdfa43…503078`，核对一致）
 - [x] 回滚步骤成文并演练过一次：退出程序（含 Watchdog）→ 恢复上一版 zip → 启动验证连接与数据（2026-11-22 00:30–00:40 实机演练通过：v1.1.0 真包启动 → 升级前冷备份 → 1.2.0 候选包覆盖升级 → 升级后启动 / 连接验证 → 恢复 v1.1.0 二进制 + `restore-data.ps1` 恢复备份库 → 回滚后启动验证；详见 §12「2026-11-21/22 24 小时观察与回滚演练」表）
 - [x] **数据库备份**：发布前对用户数据目录 `*.db`（连同 `-wal` / `-shm`）做冷备份；回滚前**再次**备份新版本已写入的数据，避免回滚覆盖（已执行：升级前冷备份 `20261122-003239`（3 个文件 57,344 B，manifest 自校验通过，`telemetryRows 60 / alarmRows 1`）；升级后冷备份 `20261122-003427`（1 个文件 32,768 B，`telemetryRows 35 / alarmRows 1`）；备份存于本机演练目录，不入库）
-- [x] 备份文件校验（可打开、条数正确），存放位置与保留期限已约定（两份备份 manifest 自校验通过、条数正确；回滚恢复备份 #1 后库回到 `60 / 1`、索引回到 2 个，条数核对 `60/1 → 走完 → 60/1` 成立；存放位置为本机演练目录（不入库），保留期限未正式约定）
+- [x] 备份文件校验（可打开、条数正确），存放位置与保留期限已约定（两份备份 manifest 自校验通过、条数正确；回滚恢复备份 #1 后库回到 `60 / 1`、索引回到 2 个，条数核对 `60/1 → 走完 → 60/1` 成立；存放位置为本机演练目录（不入库））
+      **保留策略（2026-11-22 约定）**：每个 `<备份根>\<yyyyMMdd-HHmmss>\` 为一份完整备份；保留**最近 10 份且不超过 90 天**（先到为准）——按 30 天库增长约 456 MB 估算，10 份上限约束了备份盘的长期占用。`backup-data.ps1` **不自动删除任何备份**（备份工具自动清理的误删风险高于磁盘收益），超出策略的由运维手工清理；`restore-data.ps1` 生成的 `data-before-restore-*` 目录在恢复确认后至少保留 30 天再删
 
 ## 10. 发布后 smoke 测试
 
@@ -83,7 +85,7 @@
 
 | 角色 | 责任人 | 日期 | 结论 |
 | --- | --- | --- | --- |
-| 发布负责人（lead） | lead | 2026-11-17 | ☐ 通过　☑ 阻塞（原因：真实硬件验收、无开发环境干净机未完成；回滚演练与 24h 连续观察已于 2026-11-22 闭环） |
+| 发布负责人（lead） | lead | 2026-11-22 | ☐ 通过　☑ 阻塞（原因：真实硬件验收、无开发环境干净机未完成；回滚演练、24h 连续观察、心跳管道缺陷修复均已于 2026-11-22 闭环） |
 | 质量复核（ZCode） | ZCode | 2026-11-17 | ☑ 通过（备注：文档口径与证据逐条核对）　☐ 阻塞 |
 
 > 全部通过后方可发布 Release 并打 tag；任何一项阻塞即冻结发布，修复后重新走查本表。
@@ -125,10 +127,22 @@
 | A · 数据库 / WAL | `SmartEdgeHMI.db` 69,632 B → 15,454,208 B（+14.67 MB，0.613 MB/h，按此外推 30 天约 456 MB）；WAL 峰值 4,161,232 B（3.97 MB @20:47:07），末 1/10 采样极差 0；`journal_mode=wal` ×289 |
 | A · 遥测 / 报警 / 日志 | 遥测 421 → 86,528 行（+86,107，0.999 行/秒，对 86,400 行期望的达成率 99.7%）；报警 0 行；`LinkEvents` 1 → 1（无重连）；日志 3,839 B → 13,739 B，`[ERR]` 3 → 3（无新增）、`[WRN]` 0 → 10 |
 | A · 判定与退出 | `analyze-soak.ps1` 总判定 **PASS-WITH-NOTES**（唯一「需人工判断」项 = 那 10 条 WRN）；采样器 00:27:11 自行退出（`soak 结束`），主程序 00:29:02 正常退出（日志 `[INF] SmartEdgeHMI 应用程序正在退出。退出码: 0`） |
-| A · 10 条 `[WRN]` 定性 | 全部为 `心跳发送异常, 3000ms 后重试`（2026-11-21 16:51:28–16:58:44），由本次测试活动造成：`WatchdogHeartbeatClientTests` 与本机回归测试在全局管道名 `SmartEdgeHMI_Watchdog_Pipe` 上起了假服务端，观察中的主程序连上去后服务端被拆除。**非产品缺陷、不计为观察期异常，但确实污染了日志基线** |
+| A · 10 条 `[WRN]` 定性（2026-11-22 更正） | 全部为 `心跳发送异常, 3000ms 后重试`（2026-11-21 16:51:28–16:58:44）。触发源确实是测试活动（`WatchdogHeartbeatClientTests` 在全局管道名 `SmartEdgeHMI_Watchdog_Pipe` 上起了假服务端），但当时「非产品缺陷」的定性**是错的**：2026-11-22 的实验证明，同一管道名被占用会让 Watchdog 反复强杀健康主进程。这 10 条 WRN 是**真实缺陷的症状**，已作为 v1.2.0 阻塞项修复，见 [postmortem-watchdog-pipe.md](postmortem-watchdog-pipe.md) |
 | A · 证据 | `soak.csv` SHA256 `f92c6999771113c846f5c7b06c67fac55a57553016c2058ff5fa3b6493b3d67e`（本机 `soak-data\`，不入库） |
 | B · 回滚演练（P0-07，2026-11-22 00:30–00:40） | v1.1.0 真包（GitHub Release 资产 104,128,612 B，digest `9dcdfa43…503078` 核对一致）启动：主窗口出现，库 `TelemetryHistory 60 / AlarmHistory 1`，索引 2 个（`idx_telemetry_device`、`idx_telemetry_timestamp`）；冷备份 #1 `20261122-003239`（3 个文件 57,344 B，manifest 自校验通过）；新包覆盖解压升级（17 → 295 个文件，v1.1.0 的两个 `.pdb` 残留）；升级后启动：索引 4 个（新增 `idx_telemetry_device_timestamp`、`idx_alarm_timestamp`），**遥测 60 → 0**、报警保留 1 条；界面选 COM1 →「已连接 COM1」→ 遥测 0 → 25 → 35 行；正常退出（`退出码: 0`）；冷备份 #2 `20261122-003427`（1 个文件 32,768 B，`telemetryRows 35 / alarmRows 1`）；回滚 = 恢复 v1.1.0 二进制 + `restore-data.ps1` 恢复备份 #1 → 库回到 `60 / 1`、索引回到 2 个（升级后数据移至 `data-before-restore-20261122-003437`，未删除）；回滚后启动：主窗口出现，界面报警列表可见 `ThresholdExceeded` 行 |
 | B · 升级清理旧遥测（注意事项） | 升级后首次启动，1.2.0 的数据保留任务把 v1.1.0 库里 60 行 2026-06-29 的遥测判为超过 30 天而清理；报警按 `AlarmRetentionDays=0` 保留。**这是策略行为，不是数据丢失**，但升级说明必须提醒用户：升级会按保留策略清理旧遥测（[release-notes-v1.2.0.md](release-notes-v1.2.0.md) 已知问题与升级说明已标注） |
 | C · 重建与门禁（2026-11-22，`f8b3997`） | `dotnet build -c Release` 0 错误（2 条既有 NU1701）；`dotnet test -c Release` 103 通过 / 0 失败 / 0 跳过（92 → 99 → 103：报警写入侧 +7、Watchdog 心跳 +4）；`dotnet format --verify-no-changes` 退出码 0；`git diff --stat fb69bbe..f8b3997 -- SmartEdgeHMI/ SmartEdgeHMI.Watchdog/ Firmware/ Simulator/` 输出为空 → 24 小时观察跑的就是这份产品代码（新增仅测试 / 工具 / 文档）；00:36 重建候选包（SHA256 见 §7，旧候选包 `fb69bbe` 作废） |
 | 环境限制 | v1.1.0 与 v1.2.0 均在写 `%LOCALAPPDATA%\SmartEdgeHMI\settings.json.tmp` 时被拒（`UnauthorizedAccessException`），与前两轮结论一致；不影响启动 / 连接 / 入库 |
-| 结论 | 24h 观察 **PASS-WITH-NOTES**（唯一备注 = 10 条测试活动导致的 WRN）；P0-07 升级 / 回滚演练通过（条数核对 `60/1 → 走完 → 60/1`）；真实硬件验收、无开发环境干净机仍未执行，发布继续阻塞 |
+| 结论 | 24h 观察 **PASS-WITH-NOTES**（唯一备注 = 10 条 WRN，后确认为管道缺陷症状，已修复）；P0-07 升级 / 回滚演练通过（条数核对 `60/1 → 走完 → 60/1`）；真实硬件验收、无开发环境干净机仍未执行，发布继续阻塞 |
+
+### 2026-11-22 心跳管道同名串台缺陷：定性、修复与回归（11:06–11:45）
+
+| 项 | 口径 |
+| --- | --- |
+| A · 修复前复现 | 先由脚本以 `maxInstances=1` 抢占 `SmartEdgeHMI_Watchdog_Pipe`，再启动候选包的 `SmartEdgeHMI.Watchdog.exe`：75 秒内主程序出现 **7 个不同 PID、6 次强杀**，周期约 11 秒；Watchdog 每 2 秒一条 `[ERR] 管道服务器循环异常` + `System.IO.IOException: 所有的管道范例都在使用中。`；主程序 7 次启动、6 次 `退出码: 0` 正常退出、**0 条心跳告警**（连上冒充者后 `hb` 照发） |
+| B · 根因 | 管道名是编译期常量；Watchdog 绑定失败只重试不退出，`_lastHeartbeat` 停在启动时刻，10 秒后即杀自己刚拉起的健康进程；`_lastHeartbeat != DateTime.MinValue` 的兜底被 `StartHmiProcess()` 覆盖成当前时间而失效；客户端不校验对端身份 |
+| C · 修复 | 新增 `Shared/WatchdogPipeName.cs`（管道名 = 前缀 + SHA256(程序目录小写全路径) 前 16 位，两工程链接同一源文件）；Watchdog 仅在管道服务端已绑定时才可按心跳超时杀进程（进程退出仍无条件重启）；绑定失败 ERR 降为 60 秒一条；测试改用测试目录派生的管道名，不再占用生产管道名 |
+| D · 门禁（`8952e46`） | `dotnet build -c Release` **0 错误**（2 条既有 NU1701）；`dotnet test -c Release` **108 通过 / 0 失败 / 0 跳过**（103 → 108：管道名派生 +5）；`dotnet format --verify-no-changes` 退出码 **0**；CI run `44981622078` **success**，与候选包构建提交一致 |
+| E · 四场景回归（修复后，同一套发布二进制） | A 正常（无冒充者）70 s：**1 个 PID**，不被杀；B 冒充者占用**派生名**：仍 **1 个 PID**（失效安全生效，未杀健康进程）；C 冒充者占用**旧写死名**：**1 个 PID**（名字已不同，无影响）；D 强杀主程序：**2 个 PID**，2 s 内拉起新 PID（Watchdog 保护未退化） |
+| F · 新候选包 | `SmartEdgeHMI-1.2.0-win-x64.zip`，82,066,546 字节 / 78.26 MB，SHA256 `76e9641a…07f681`，构建自 `8952e46`；包内 `SmartEdgeHMI.exe` 与 `SmartEdgeHMI.Watchdog.exe` 的 `ProductVersion` 均为 `1.2.0+8952e46…`（SHA256 见 §7） |
+| G · 遗留风险 | 心跳报文仍无鉴权；知道派生规则且与被监视程序同目录的进程理论上仍可冒充或吸收心跳（已写入 Release Notes 已知问题 8） |
