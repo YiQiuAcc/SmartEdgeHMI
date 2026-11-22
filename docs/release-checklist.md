@@ -8,7 +8,7 @@
 
 - [x] 版本号确定（SemVer，如 v1.2.0），与 Release Notes / tag 名一致（版本 1.2.0）
 - [x] 发布分支为 `main`，工作区干净：`git status` 无未提交 / 未跟踪文件（文档提交后复核）
-- [ ] tag 指向本次已验证的提交，tag 名与版本一致（未打 tag：24h 观察与回滚演练已于 2026-11-22 闭环，仍待干净机与硬件验收后决定）
+- [x] tag 指向本次已验证的提交，tag 名与版本一致（`v1.2.0` 打在本次提交上。**说明**：候选包构建于父提交 `26f6cef`，本次提交只改文档（哈希引用、验收记录、待办），源码与二进制零差异；因此 tag 提交与包内 `ProductVersion = 1.2.0+26f6cef…` 相差一个文档提交，这是本仓库确定性构建（版本号内嵌 `SourceRevisionId`）与"哈希必须写进文档"两个约束叠加下的必然结果，已在 §7 与 Release Notes §8 显式记录）
 - [x] CI 在该提交上全绿（restore / build / test / format 四步）（CI run `44981622078` / `8952e46`，success，**与候选包构建提交一致**。说明：上一候选包构建于 `f8b3997`，但该提交没有以自己的提交号为 key 的 CI 运行——上一轮 11 个提交一次性 push，GitHub 只为推送 head `bb64359` 起跑，这是本轮修掉的证据链断点；本轮改为每个提交单独推送，候选包提交与 CI 运行已一一对应）
 
 ## 2. 构建与测试
@@ -50,12 +50,12 @@
 
 ## 7. 打包与校验和
 
-- [x] 打包执行：`pwsh tools/package.ps1 -Version {版本}`（publish / 压缩 / SHA256 一键完成，产物输出至 `dist/`）（2026-11-22 15:13 实测 `pwsh tools/package.ps1 -Version 1.2.0`，构建来源 `main` @ `e1a3240`，CI run `44997763278` 在该提交上 success；此前 `8952e46` 候选包作废，见下方 SHA256 项）
-- [x] 产物命名：`SmartEdgeHMI-{版本}-win-x64.zip`（脚本按 `-Version` / `-Runtime` 生成，tag 前缀 `v` 已去除）（产物 `SmartEdgeHMI-1.2.0-win-x64.zip`，82,067,265 字节 / 78.27 MB）
+- [x] 打包执行：`pwsh tools/package.ps1 -Version {版本}`（publish / 压缩 / SHA256 一键完成，产物输出至 `dist/`）（2026-11-22 17:47 **清洁构建**实测 `pwsh tools/package.ps1 -Version 1.2.0`：先删除全部 `bin/obj/.vs/.pio/node_modules/dist` 构建产物，从零还原后打包；构建来源 `main` @ `26f6cef`，CI run `45008115174` 在该提交上 success；此前 `e1a3240`、`8952e46` 候选包作废，见下方 SHA256 项）
+- [x] 产物命名：`SmartEdgeHMI-{版本}-win-x64.zip`（脚本按 `-Version` / `-Runtime` 生成，tag 前缀 `v` 已去除）（产物 `SmartEdgeHMI-1.2.0-win-x64.zip`，82,066,868 字节 / 78.27 MB；511 条目 = 503 `.dll` / 5 `.json` / 3 `.exe`）
 - [x] 包内容核对：主程序 exe + Watchdog exe + `appsettings.json` + 运行所需依赖；不含源码 / 测试 / 基准工程 / 模拟器（含 `SmartEdgeHMI.exe` / `SmartEdgeHMI.Watchdog.exe` / `appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h`）
 - [x] 干净目录（及一台无开发环境的机器）解压后可直接启动（本机空白目录解压后直接启动通过；**干净机已于 2026-11-22 验收通过**：Windows 10 Pro 22H2 / `干净机`，无 .NET SDK、无 .NET 8 运行时，解压 511 文件后启动 1.364 s 出现主窗口，见 §12 与 Release Notes 已知问题 2）
 - [x] SHA256 校验和（脚本自动写入 `dist/<zip>.sha256`，格式 `<hash>  <文件名>`），记录到 Release Notes：
-      `SHA256: 6fc86aa33f8a52c81f0504ff44f2f9cb85276017e1e7a3c378b8c72428876077`（旧候选包 `76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681` / `8952e46` 作废，`c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` / `f8b3997` 作废，`24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `fb69bbe` 作废；更早 `99e8a5e9…34a1` / `ae10336` 已作废），2026-11-22 15:13 重建时由脚本记录；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验
+      `SHA256: 4a2d49200cbb0073d00ae494f616ffc39bd2f79bbdfaa42b473da206a1a440fd`（旧候选包 `6fc86aa33f8a52c81f0504ff44f2f9cb85276017e1e7a3c378b8c72428876077` / `e1a3240` 作废，`76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681` / `8952e46` 作废，`c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` / `f8b3997` 作废，`24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `fb69bbe` 作废；更早 `99e8a5e9…34a1` / `ae10336` 已作废），2026-11-22 17:47 清洁构建时由脚本记录；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验
 
 ## 8. Release Notes
 

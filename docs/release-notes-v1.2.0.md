@@ -1,8 +1,8 @@
 # SmartEdgeHMI v1.2.0 发布说明
 
 > 版本 1.2.0 ｜ 日期 2026-11-21 ｜ 目标框架 .NET 8 (win-x64, self-contained)
-> 状态：**候选包已重建（`e1a3240`，CI 在该提交上全绿），未发布**（阻塞项见「已知问题」）
-> 旧候选包（`8952e46` / `76e9641a…7681`；更早 `f8b3997` / `c02c87aa…e230b`；`fb69bbe` / `24fa4004…b168`、`ae10336` / `99e8a5e9…`）与其结论作废。
+> 状态：**候选包已重建（清洁构建于 `26f6cef`，CI 在该提交上全绿），待打 tag `v1.2.0`**
+> 旧候选包（`e1a3240` / `6fc86aa3…768077`；`8952e46` / `76e9641a…7681`；更早 `f8b3997` / `c02c87aa…e230b`；`fb69bbe` / `24fa4004…b168`、`ae10336` / `99e8a5e9…`）与其结论作废。
 > 2026-11-22 真机硬件验收（NodeMCU v2 + CH340, COM4）第一轮在 HW-06 判失败，暴露三条 P1（协议选择不持久化 / 重启后不自动连串口 / 手动重连与在途重试竞态）；修复后第二轮 HW-02/04/05/06 全部通过，验收记录见 [hardware-validation-2026-11-22.md](hardware-validation-2026-11-22.md)。
 
 ## 1. 摘要
@@ -91,10 +91,10 @@
 | 项 | 值 |
 | --- | --- |
 | 产物 | `dist/SmartEdgeHMI-1.2.0-win-x64.zip` |
-| 大小 | 82,067,265 字节 / 78.27 MB |
-| SHA256 | `6fc86aa33f8a52c81f0504ff44f2f9cb85276017e1e7a3c378b8c72428876077` |
-| 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验。旧候选包均已作废：`76e9641a…7681`（`8952e46`）、`c02c87aa…e230b`（`f8b3997`）、`24fa4004…b168`（`fb69bbe`）、`99e8a5e9…34a1`（`ae10336`） |
-| 构建来源 | `main` @ `e1a3240`，`pwsh tools/package.ps1 -Version 1.2.0`（2026-11-22 15:13）；CI run `44997763278` 在该提交上 success；包内 `SmartEdgeHMI.exe` 与 `SmartEdgeHMI.Watchdog.exe` 的 `ProductVersion` 均为 `1.2.0+e1a3240583ac42e4517fce93293f0d8b54887602` |
+| 大小 | 82,066,868 字节 / 78.27 MB |
+| SHA256 | `4a2d49200cbb0073d00ae494f616ffc39bd2f79bbdfaa42b473da206a1a440fd` |
+| 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验。旧候选包均已作废：`6fc86aa3…768077`（`e1a3240`）、`76e9641a…7681`（`8952e46`）、`c02c87aa…e230b`（`f8b3997`）、`24fa4004…b168`（`fb69bbe`）、`99e8a5e9…34a1`（`ae10336`） |
+| 构建来源 | `main` @ `26f6cef`，清洁构建（先删除全部 `bin/obj/.vs/.pio/node_modules/dist` 构建产物再 `pwsh tools/package.ps1 -Version 1.2.0`，2026-11-22 17:47）；CI run `45008115174` 在该提交上 success；包内 `SmartEdgeHMI.exe` 与 `SmartEdgeHMI.Watchdog.exe` 的 `ProductVersion` 均为 `1.2.0+26f6cef3b6fa50e20a677ebb9218bd326bb569b9` |
 | 包内容 | 511 条目 = 503 `.dll` / 5 `.json` / 3 `.exe`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map/.h`、无 `secrets.h`（本轮实测口径） |
 
 ## 9. 证据索引
