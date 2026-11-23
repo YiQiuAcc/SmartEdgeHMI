@@ -1,6 +1,6 @@
 # 复盘：串口断开连接后的未观察 Task 异常（CTS 释放竞态）
 
-- 分析对象：提交 30390aa（"修复断开连接未观察到的 Task 异常"，2026-08-25）
+- 分析对象：提交 8d89037（"修复断开连接未观察到的 Task 异常"，2026-08-25）
 - 复盘日期：2026-11-16 ｜ 范围：仅该提交 + 当前工作区代码，静态核实，未运行程序
 
 ## 摘要
@@ -26,7 +26,7 @@ getter 抛出 `ObjectDisposedException`；该任务无人等待，异常成为�
 2. 同一时刻后台读取任务仍在循环中，下次求值 `ctx.Cts.Token` 时 CTS 已 Dispose → ObjectDisposedException。
 3. 同一清理路径的其他入口：服务 `Dispose`（SerialPortService.cs:370-382）、`OpenPortInternal`
    重开已存在端口时替换旧上下文（SerialPortService.cs:82-85）。
-4. 修复前的实时求值点（见提交 30390aa diff 删除行）：读取循环条件、`ReadFromPortSafe` 的 token 参数、
+4. 修复前的实时求值点（见提交 8d89037 diff 删除行）：读取循环条件、`ReadFromPortSafe` 的 token 参数、
    重连延迟 `Task.Delay`、稳定等待 `Task.Delay`、`RunReadSessionAsync` 判断、两处 `WriteLock.WaitAsync`。
 
 ## 根因

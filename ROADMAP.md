@@ -58,12 +58,12 @@
 
 ### 阶段八：工程化外壳与可信度补全 [已完成]
 
-> 定位：代码本体（分层、命名、死代码）已在 `bc2e5fe` / `13d0daa` 两轮清理；注释于 2026-11-23 按 [docs/comment-guidelines.md](docs/comment-guidelines.md) 全仓统一。本阶段不再动业务代码结构，只补"外部可验证的信号"与"结果可量化的证据"。按投入产出比排序执行。
+> 定位：代码本体（分层、命名、死代码）已在 `bc2e5fe` / `c500228` 两轮清理；注释于 2026-11-23 按 [docs/comment-guidelines.md](docs/comment-guidelines.md) 全仓统一。本阶段不再动业务代码结构，只补"外部可验证的信号"与"结果可量化的证据"。按投入产出比排序执行。
 > v1.2 里程碑、DoD 与发布记录见 [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md)。
 
 **P0 · 可信度打底（必须先做，后面所有事的可信度都挂在这上面）**
 
-- [x] 接入 GitHub Actions CI：`dotnet restore` → `dotnet build -c Release` → `dotnet test` → `dotnet format --verify-no-changes`（[.github/workflows/ci.yml](.github/workflows/ci.yml)；已提交推送，CI 全绿（run 44772013652 / `fb69bbe`））
+- [x] 接入 GitHub Actions CI：`dotnet restore` → `dotnet build -c Release` → `dotnet test` → `dotnet format --verify-no-changes`（[.github/workflows/ci.yml](.github/workflows/ci.yml)；已提交推送，CI 全绿（run 44772013652 / `5a7c383`））
 - [x] 将 README 中硬编码徽章（`build-passing`、`tests-39 passed`）替换为真实 workflow badge（[README.md](README.md) 徽章区 + "工程证据"小节，TASK-004）
 - [x] 补齐 `LICENSE` 文件（MIT 全文），与 README 徽章声明一致（[LICENSE](LICENSE)）
 
@@ -78,7 +78,7 @@
 
 - [x] 引入 BenchmarkDotNet 性能基准（[docs/performance-benchmarks.md](docs/performance-benchmarks.md)：LTTB 1 万 / 10 万 / 100 万点耗时与分配、SQLite 逐条 vs 50 / 500 批量事务吞吐，含测试环境与未测量边界）
     - 原始产物（md/csv/html/日志）留存于本地 `BenchmarkDotNet.Artifacts/`（已被 .gitignore 忽略），关键表格已复制进文档；未单独出图归档到 `docs/assets/`
-- [x] 撰写故障复盘文档 [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md)，基于 `30390aa`（关闭 COM1 后访问已释放 CTS 导致未观察 Task 异常）复盘：故障现象 → 排查路径 → 根因 → 修复方案 → 防复发措施
+- [x] 撰写故障复盘文档 [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md)，基于 `8d89037`（关闭 COM1 后访问已释放 CTS 导致未观察 Task 异常）复盘：故障现象 → 排查路径 → 根因 → 修复方案 → 防复发措施
 - [x] 真实硬件验收：**已执行（2026-11-22，两轮）**，六项全过（带备注）；第一轮失败原因与修复见 [hardware-validation-2026-11-22.md](docs/hardware-validation-2026-11-22.md)，流程模板见 [hardware-validation.md](docs/hardware-validation.md)
 
 **明确不做（避免负收益）**

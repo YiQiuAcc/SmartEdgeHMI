@@ -1,6 +1,6 @@
 # SmartEdgeHMI 现场操作手册
 
-> 适用版本：v1.2.0（发布包 `SmartEdgeHMI-1.2.0-win-x64.zip`，tag `v1.2.0`，构建自 `main` @ `26f6cef`，见 release-notes-v1.2.0.md §8）。
+> 适用版本：v1.2.0（发布包 `SmartEdgeHMI-1.2.0-win-x64.zip`，tag `v1.2.0`，构建自 `main` @ `1744cd2`，见 release-notes-v1.2.0.md §8）。
 > 本手册只写有依据的事实，关键结论的出处见文末「依据表」；看不到依据的写「未验证」并在 §9 登记。无截图可配。
 
 ## 1. 这是什么 / 适用版本

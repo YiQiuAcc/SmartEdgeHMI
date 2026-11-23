@@ -419,7 +419,7 @@ pio run --target upload
 
 | 证据 | 状态与口径 | 链接 |
 | --- | --- | --- |
-| CI 门禁 | restore → build(Release) → test → format 四步（windows-latest）；最近两次均 success：`45009427633`（`847c065`）、`45008115174`（包构建提交 `26f6cef`），实时结果以徽章为准 | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| CI 门禁 | restore → build(Release) → test → format 四步（windows-latest）；重写后提交的实时结果以徽章为准；重写前运行号仅属历史（隐私脱敏已重写历史） | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | 单元测试 | 129 通过 / 0 失败 / 0 跳过（2026-11-22 清洁构建后 `dotnet test -c Release --no-build` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
 | format 门禁 | `dotnet format --verify-no-changes` 退出码 0（2026-11-22 实测） | 同 CI 第 4 步 |
 | 注释规范 | 项目统一标准：注释类型选择、XML 文档门槛、六类必写契约（并发/异步/缓冲/协议/状态机/性能）、格式与禁止事项，附自检命令与正反例 | [docs/comment-guidelines.md](docs/comment-guidelines.md) |
