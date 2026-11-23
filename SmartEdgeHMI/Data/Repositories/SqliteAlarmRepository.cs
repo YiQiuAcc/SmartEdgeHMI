@@ -80,7 +80,7 @@ public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConf
 
             // 两段式查询: 先按过滤条件取报警列表(与 GetAlarmHistoryAsync 共用 SQL), 再逐条按时间窗口查遥测。
             // 每行一次查询(N+1), 但报警数已被 QueryLimit 限制(默认 10), 比整表 JOIN 进内存更可控
-            // TODO: 可优化为批量查询
+            // NOTE: 可优化为批量查询
             List<AlarmRecord> alarms = await QueryAlarmsAsync(connection, filter, _queryLimit);
 
             var results = new List<AlarmWithTelemetry>(alarms.Count);
