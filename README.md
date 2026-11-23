@@ -27,7 +27,7 @@
 
 <br/><br/>
 
-**[下载 Release (v1.1.0)](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/download/v1.1.0/SmartEdgeHMI-v1.1.0-win-x64.zip) | 最新版 `v1.2.0` 已打 tag、Release 资产待建立 | [技术栈](#技术栈) | [完整开发路线](#路线图)**
+**[下载 Release (v1.2.0)](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/download/v1.2.0/SmartEdgeHMI-1.2.0-win-x64.zip) | 最新版 `v1.2.0` 已发布 | [技术栈](#技术栈) | [完整开发路线](#路线图)**
 
 </div>
 
@@ -426,7 +426,7 @@ pio run --target upload
 | 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 14.8 万行/秒；查询下推后报警历史 118 µs、报警上下文 1.1 ms、趋势 20 万行分配 0.75 MB | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
 | 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）；Watchdog 心跳管道同名串台：根因 / 修复 / 防复发约定 | [postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) · [postmortem-watchdog-pipe.md](docs/postmortem-watchdog-pipe.md) |
 | 数据保留 | 遥测 30 天分批清理 / 报警默认不删 / 库文件不缩小的边界说明 | [docs/data-retention.md](docs/data-retention.md) |
-| 发布包 | `tools/package.ps1` 一键产出 self-contained zip（78.27 MB，511 个文件）+ SHA256；`pwsh tools/verify-release.ps1 -Version 1.2.0` 四项检查退出码 0，重跑幂等 | [tools/package.ps1](tools/package.ps1) · [release-checklist.md](docs/release-checklist.md) |
+| 发布包 | `tools/package.ps1` 一键产出 self-contained zip（78.27 MB，511 个文件）+ SHA256；`verify-release.ps1` 四项检查退出码 0；[Release 页](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/tag/v1.2.0)已建立，回下载 SHA256 复核一致 | [tools/package.ps1](tools/package.ps1) · [release-checklist.md](docs/release-checklist.md) |
 | 真实硬件验收 | **已执行（2026-11-22，NodeMCU v2 + CH340 / COM4，两轮）**：六项全过（带备注）——第一轮 HW-06 失败并暴露 3 条 P1，修复后第二轮强杀恢复 7.8 s、125 分钟浸泡零中断；遗留 F-4 / F-6 转入 v1.2.1 | [docs/hardware-validation-2026-11-22.md](docs/hardware-validation-2026-11-22.md) · [验收模板](docs/hardware-validation.md) |
 | 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表；v1.1.0 标签与发布包追溯 | [next-steps-v1.2.md](docs/next-steps-v1.2.md) · [release-checklist.md](docs/release-checklist.md) · [traceability-v1.1.0.md](docs/traceability-v1.1.0.md) |
 | 现场操作手册 | 面向现场工程师：安装启动 / 连接 / 阈值 / 报警 / 备份回滚 / 常见问题，每条行为描述附依据出处 | [docs/user-manual.md](docs/user-manual.md) |
