@@ -109,3 +109,7 @@
 - [x] 新增 [docs/comment-guidelines.md](docs/comment-guidelines.md)：注释判据、类型选择、XML 文档门槛、六类必写契约、格式与禁止事项、自检命令
 - [x] 全仓按规范清理注释（C# / Watchdog / Shared / Tests / Benchmarks / Firmware / Simulator / tools 脚本）：删除复述代码、装饰线、空壳文档与口语化表述，补齐并发、取消、缓冲区所有权、协议映射与状态迁移契约
 - [x] 门禁：build 0 错误、129 单测通过、format 退出码 0、5 个 tools 脚本语法解析通过
+
+### 后续维护
+
+ROADMAP 阶段一～十已全部完成。v1.2.1 维护与收尾清单见 [docs/next-steps-v1.2.1.md](docs/next-steps-v1.2.1.md)。

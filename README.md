@@ -428,7 +428,7 @@ pio run --target upload
 | 数据保留 | 遥测 30 天分批清理 / 报警默认不删 / 库文件不缩小的边界说明 | [docs/data-retention.md](docs/data-retention.md) |
 | 发布包 | `tools/package.ps1` 一键产出 self-contained zip（78.27 MB，511 个文件）+ SHA256；`verify-release.ps1` 四项检查退出码 0；[Release 页](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/tag/v1.2.0)已建立，回下载 SHA256 复核一致 | [tools/package.ps1](tools/package.ps1) · [release-checklist.md](docs/release-checklist.md) |
 | 真实硬件验收 | **已执行（2026-11-22，NodeMCU v2 + CH340 / COM4，两轮）**：六项全过（带备注）——第一轮 HW-06 失败并暴露 3 条 P1，修复后第二轮强杀恢复 7.8 s、125 分钟浸泡零中断；遗留 F-4 / F-6 转入 v1.2.1 | [docs/hardware-validation-2026-11-22.md](docs/hardware-validation-2026-11-22.md) · [验收模板](docs/hardware-validation.md) |
-| 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表；v1.1.0 标签与发布包追溯 | [next-steps-v1.2.md](docs/next-steps-v1.2.md) · [release-checklist.md](docs/release-checklist.md) · [traceability-v1.1.0.md](docs/traceability-v1.1.0.md) |
+| 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表；v1.1.0 标签与发布包追溯；v1.2.1 维护与收尾清单 | [next-steps-v1.2.md](docs/next-steps-v1.2.md) · [release-checklist.md](docs/release-checklist.md) · [traceability-v1.1.0.md](docs/traceability-v1.1.0.md) · [next-steps-v1.2.1.md](docs/next-steps-v1.2.1.md) |
 | 现场操作手册 | 面向现场工程师：安装启动 / 连接 / 阈值 / 报警 / 备份回滚 / 常见问题，每条行为描述附依据出处 | [docs/user-manual.md](docs/user-manual.md) |
 
 ---
