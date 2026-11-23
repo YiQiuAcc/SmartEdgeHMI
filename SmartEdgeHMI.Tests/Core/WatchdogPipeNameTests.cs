@@ -5,7 +5,6 @@ namespace SmartEdgeHMI.Tests.Core;
 /// <summary>Watchdog 管道名派生规则测试: 锁死已发布版本的具体取值, 防止算法或前缀被无意改动导致新旧构建的管道对不上</summary>
 public class WatchdogPipeNameTests
 {
-    /// <summary>锁死取值: 已知目录必须得到既定管道名</summary>
     [Fact]
     public void 已知目录_得到锁死的管道名()
     {
@@ -24,7 +23,7 @@ public class WatchdogPipeNameTests
         Assert.Equal(expected, WatchdogPipeName.For(@"C:\Program Files\SmartEdgeHMI\"));
     }
 
-    /// <summary>两个不同目录必须派生出不同管道名, 否则不同安装实例仍会互相串台</summary>
+    /// <summary>两个不同目录必须派生出不同管道名, 否则不同安装实例仍会互相干扰</summary>
     [Fact]
     public void 不同目录_得到不同管道名()
     {
@@ -33,7 +32,6 @@ public class WatchdogPipeNameTests
             WatchdogPipeName.For(@"D:\Apps\SmartEdgeHMI"));
     }
 
-    /// <summary>结果必须以前缀开头, 后缀恰为 16 位小写十六进制字符</summary>
     [Fact]
     public void 结果_以Prefix开头且后缀为16位小写十六进制()
     {

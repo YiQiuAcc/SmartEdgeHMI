@@ -6,12 +6,19 @@ using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.Core.Domain.MachineState;
 
-/// <summary>ISA-18.2 报警状态机: 管理报警的 UNACK/ACK/RTN_UNACK/NORMAL 四种状态转换</summary>
+/// <summary>ISA-18.2 报警状态机: UNACK / ACK / RTN_UNACK / NORMAL 四态迁移与恢复去抖</summary>
+/// <remarks>
+/// <c>_syncRoot</c> 保护 <c>_activeAlarms</c> 字典及其中 <see cref="AlarmContext.Record"/> 的可变字段。
+/// 所有公开成员可从任意线程调用; <see cref="AlarmStatesChanged"/> 在锁外触发,
+/// 处理器若反向调用本类型的加锁成员不会死锁, 但会看到已提交的中间状态。
+/// </remarks>
 public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMachine
 {
     private sealed class AlarmContext
     {
         public AlarmRecord Record { get; set; } = null!;
+
+        // 连续正常读数的计数, 达到 RecoveryDebounceCount 才判定恢复, 用于滤掉单次抖动
         public int RecoveryCount;
     }
 
@@ -40,7 +47,7 @@ public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMa
             lock (_syncRoot)
             {
                 // 字典里保留的记录都视为待处理: 事件窗口内刚转为 NORMAL 的记录也要能被取到,
-                // 供 MonitorViewModel 把最终态(含 ClearedAt)同步进数据库; 事件返回后由 NotifyStatesChanged 移除
+                // 供 MonitorViewModel 把最终态同步进数据库; 事件返回后由 NotifyStatesChanged 移除
                 return [.. _activeAlarms.Values.Select(c => c.Record)];
             }
         }
@@ -71,6 +78,7 @@ public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMa
 
                 if (ctx.Record.State == AlarmState.RTN_UNACK)
                 {
+                    // 恢复后再次报错: 之前的确认与恢复时刻均已失效, 回到 UNACK 要求重新确认
                     ctx.Record.State = AlarmState.UNACK;
                     ctx.Record.AcknowledgedAt = null;
                     ctx.Record.ClearedAt = null;
@@ -112,7 +120,10 @@ public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMa
         NotifyStatesChanged();
     }
 
-    /// <summary>触发状态变化事件, 事件返回后再把已完全恢复(NORMAL)的记录移出活动表: 事件处理期间(如数据库同步)必须仍能取到带最终状态的记录, handler 抛异常时也保证移除</summary>
+    /// <summary>触发状态变化事件, 事件返回后再把已完全恢复(NORMAL)的记录移出活动表</summary>
+    /// <remarks>
+    /// 顺序不可调换: 处理器(UI 刷新、落库)必须仍能从 <see cref="PendingAlarms"/> 取到带 ClearedAt 的最终态记录。
+    /// </remarks>
     private void NotifyStatesChanged()
     {
         try
@@ -121,6 +132,7 @@ public class AlarmStateMachine(ISettingsService settingsService) : IAlarmStateMa
         }
         finally
         {
+            // 移除放在 finally, 处理器抛异常时也不会残留已终结的报警
             lock (_syncRoot)
             {
                 var settled = _activeAlarms

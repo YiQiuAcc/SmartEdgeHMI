@@ -12,6 +12,12 @@ using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.Protocols.Parsers.Json;
 
+/// <summary>JSON 行协议解析器: 按行切分 UTF-8 报文, 反序列化为 <see cref="TelemetryPayload"/></summary>
+/// <remarks>
+/// 报文以 <c>\n</c> 分隔(容忍行尾 <c>\r</c>), 单行即一条遥测。每个端口一条 <see cref="Pipe"/>,
+/// 读循环只负责写管道, 切行与反序列化在独立任务上执行, 避免解析耗时阻塞串口读取。
+/// 单行解析失败只记日志并丢弃该行, 不影响后续报文。
+/// </remarks>
 public class JsonProtocolParser(IDeviceStateContainer deviceState) : IProtocolParser
 {
     private readonly ConcurrentDictionary<string, PortPipeState> _pipes = new();
@@ -28,6 +34,7 @@ public class JsonProtocolParser(IDeviceStateContainer deviceState) : IProtocolPa
         var state = _pipes.GetOrAdd(portName, key =>
         {
             var s = new PortPipeState();
+            // 消费任务不绑定调用方 Token, 端口断开由 OnDeviceStateChanged 通过 ps.Cts 结束
             s.ProcessingTask = Task.Run(() => ProcessPipeLoopAsync(key, s))
                 .ObserveAndLogAsync($"[JSON] {key} 管道处理任务");
             return s;
@@ -65,7 +72,7 @@ public class JsonProtocolParser(IDeviceStateContainer deviceState) : IProtocolPa
         }
         catch (OperationCanceledException)
         {
-            // 取消操作时正常退出循环
+            // 端口断开或 Dispose 时由 ps.Cts 取消
         }
         catch (Exception ex)
         {
@@ -85,6 +92,7 @@ public class JsonProtocolParser(IDeviceStateContainer deviceState) : IProtocolPa
         {
             ProcessLine(portName, line);
         }
+        // 消费到最后一个换行, 但未读部分保留在管道中, 半个报文保留到后续读入时补齐, 不会被截断丢弃
         reader.AdvanceTo(seqReader.Position, buffer.End);
     }
 
@@ -173,6 +181,8 @@ public class JsonProtocolParser(IDeviceStateContainer deviceState) : IProtocolPa
 
         public PortPipeState()
         {
+            // pauseWriterThreshold: 0 表示不因缓冲量暂停写入, 即不做背压;
+            // 串口速率远低于解析速度时无影响, 若后续接入高速链路需改为限定容量并处理等待
             Pipe = new Pipe(new PipeOptions(
                 pool: MemoryPool<byte>.Shared,
                 pauseWriterThreshold: 0,

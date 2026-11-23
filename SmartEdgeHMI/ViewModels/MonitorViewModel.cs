@@ -16,6 +16,12 @@ using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.ViewModels;
 
+/// <summary>监控页视图模型: 遥测写入数据库、报警评估与阈值下发的中转站</summary>
+/// <remarks>
+/// 数据处理链路由 <see cref="Receive"/> 触发, 实际执行发生在串口读线程上,
+/// 遥测写入数据库, 交给报警状态机, 新报警则写入数据库并广播。因此这里的成员不能假设自己运行在 UI 线程,
+/// 需要更新绑定集合时必须显式切回 UI 线程。
+/// </remarks>
 public partial class MonitorViewModel : ViewModelBase,
     IRecipient<DeviceTelemetry>
 {
@@ -67,6 +73,7 @@ public partial class MonitorViewModel : ViewModelBase,
     {
         _deviceState.UpdateConnectionState(portName, state);
 
+        // 设备侧阈值只保存在 RAM 中, 掉电重启即丢失, 每次连接建立后都重新下发界面当前值
         if (state == ConnectionState.Connected)
             _ = SaveThresholdSafeAsync(AlarmThreshold);
     }
@@ -94,6 +101,7 @@ public partial class MonitorViewModel : ViewModelBase,
                 ErrorCode = _deviceState.LatestErrorCode,
                 QualityCode = _deviceState.LatestQuality
             };
+            // 读线程不等待, 仓储内部是异步入队, 队列满时该任务会在后台等待, 数据不会丢失
             _ = _telemetryRepo.SaveTelemetryAsync(record);
 
             var payload = new TelemetryPayload
@@ -121,7 +129,6 @@ public partial class MonitorViewModel : ViewModelBase,
         var payload = message.Payload;
         _deviceState.UpdateTelemetry(message.PortName, payload.Temperature,
             payload.Humidity, payload.StatusCode, payload.ErrorCode, payload.QualityCode);
-        // OnNewTelemetryAsync will be triggered by PropertyChanged
     }
 
     private void OnAlarmStatesChanged()
@@ -136,7 +143,8 @@ public partial class MonitorViewModel : ViewModelBase,
         try
         {
             await _alarmRepo.UpdateAlarmStatesAsync(_alarmStateMachine.PendingAlarms);
-            // 同步任务的 SQLite 调用同步完成, 此处可能仍在事件窗口内, NORMAL 记录会短暂存在而不能作为待确认依据; 用非 NORMAL 过滤保证刚恢复的记录不把按钮点亮
+            // 同步任务的 SQLite 调用同步完成, 但事件窗口内 NORMAL 记录仍会短暂存在,
+            // 用非 NORMAL 过滤保证刚恢复的记录不会使待确认按钮可见
             HasPendingAlarms = _alarmStateMachine.PendingAlarms.Any(a => a.State != AlarmState.NORMAL);
         }
         catch (Exception ex)
@@ -150,6 +158,7 @@ public partial class MonitorViewModel : ViewModelBase,
         try
         {
             double threshold = _settingsService.Current.Hardware.DefaultThreshold;
+            // 初始化赋值不触发防抖保存
             _isInitializing = true;
             AlarmThreshold = threshold;
             _isInitializing = false;
@@ -200,7 +209,7 @@ public partial class MonitorViewModel : ViewModelBase,
         }
         catch (OperationCanceledException)
         {
-            // 正常取消
+            // 新的输入取代本次防抖, 正常路径
         }
         catch (Exception ex)
         {

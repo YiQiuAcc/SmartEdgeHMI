@@ -422,6 +422,7 @@ pio run --target upload
 | CI 门禁 | restore → build(Release) → test → format 四步（windows-latest）；最近两次均 success：`45009427633`（`847c065`）、`45008115174`（包构建提交 `26f6cef`），实时结果以徽章为准 | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | 单元测试 | 129 通过 / 0 失败 / 0 跳过（2026-11-22 清洁构建后 `dotnet test -c Release --no-build` 实测） | `dotnet test SmartEdgeHMI.sln -c Release` |
 | format 门禁 | `dotnet format --verify-no-changes` 退出码 0（2026-11-22 实测） | 同 CI 第 4 步 |
+| 注释规范 | 项目统一标准：注释类型选择、XML 文档门槛、六类必写契约（并发/异步/缓冲/协议/状态机/性能）、格式与禁止事项，附自检命令与正反例 | [docs/comment-guidelines.md](docs/comment-guidelines.md) |
 | 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 14.8 万行/秒；查询下推后报警历史 118 µs、报警上下文 1.1 ms、趋势 20 万行分配 0.75 MB | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
 | 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）：根因 / 修复 / 防复发约定 | [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) |
 | 数据保留 | 遥测 30 天分批清理 / 报警默认不删 / 库文件不缩小的边界说明 | [docs/data-retention.md](docs/data-retention.md) |

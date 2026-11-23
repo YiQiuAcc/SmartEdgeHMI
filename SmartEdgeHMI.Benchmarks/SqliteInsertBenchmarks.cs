@@ -6,7 +6,7 @@ namespace SmartEdgeHMI.Benchmarks;
 
 /// <summary>
 /// SQLite 遥测写入基准: 单条提交 vs 批量事务。
-/// 被测范围 = 打开连接 → PRAGMA → 按批次开启事务 → 参数化插入 → 提交;
+/// 被测范围为打开连接, PRAGMA, 按批次开启事务, 参数化插入, 提交;
 /// 数据准备与清表在 GlobalSetup / IterationSetup 中完成, 不计入耗时。
 /// </summary>
 [MemoryDiagnoser]

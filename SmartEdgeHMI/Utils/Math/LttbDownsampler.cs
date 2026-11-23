@@ -2,8 +2,15 @@ using SmartEdgeHMI.Data.Entities;
 
 namespace SmartEdgeHMI.Utils.Math;
 
+/// <summary>LTTB 降采样: 把长序列压缩到目标点数, 同时保留峰谷与趋势形状, 供趋势图渲染</summary>
+/// <remarks>
+/// 单次 O(n) 扫描, 不分配中间序列, 首尾点恒定保留, 极值位于边界时不会丢失。
+/// 横坐标使用相对首个样本的 Ticks 差值, 避免 6e17 量级的时间戳在 double 运算中损失精度。
+/// </remarks>
 public static class LttbDownsampler
 {
+    /// <summary>按 LTTB 算法降至 <paramref name="targetCount"/> 个点</summary>
+    /// <param name="targetCount">期望输出点数; 小于 3 或不少于原始点数时退化为原序列副本</param>
     public static List<SensorReadingRecord> Downsample(IReadOnlyList<SensorReadingRecord> data, int targetCount)
     {
         if (data.Count <= targetCount || targetCount < 3)

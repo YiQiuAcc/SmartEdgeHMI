@@ -65,6 +65,7 @@ public class AppSettingsValidatorTests
         settings.Modbus.PollingIntervalMs = 0;
         settings.Logging.MaxLogEntries = 0;
 
+        // 三个字段同时非法时必须一次返回三条: 界面能一次提示完, 而不是改一条报一条
         IReadOnlyList<string> errors = AppSettingsValidator.Validate(settings);
 
         Assert.Equal(3, errors.Count);

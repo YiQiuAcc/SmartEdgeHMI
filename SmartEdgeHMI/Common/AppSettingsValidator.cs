@@ -1,9 +1,9 @@
 namespace SmartEdgeHMI.Common;
 
-/// <summary>启动配置校验器: 检查用户设置文件中的关键参数是否在允许范围内, 避免带非法参数进入半运行状态</summary>
+/// <summary>启动配置校验器: 检查用户设置文件中的关键参数是否在允许范围内</summary>
 public static class AppSettingsValidator
 {
-    /// <summary>校验用户设置文件中的关键参数, 返回人类可读的错误列表; 空列表表示通过。</summary>
+    /// <summary>校验用户设置文件中的关键参数, 返回错误列表, 空列表表示通过</summary>
     public static IReadOnlyList<string> Validate(AppSettings settings)
     {
         List<string> errors = [];

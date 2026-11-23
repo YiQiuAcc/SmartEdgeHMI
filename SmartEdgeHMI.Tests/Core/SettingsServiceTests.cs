@@ -5,14 +5,13 @@ using SmartEdgeHMI.Core.Services;
 
 namespace SmartEdgeHMI.Tests.Core;
 
-/// <summary>SettingsService 首启健壮性测试: 全部使用临时目录, 不读写真实 %LOCALAPPDATA%</summary>
+/// <summary>SettingsService 的首次运行健壮性与协议持久化; 全部使用临时目录, 不读写真实 %LOCALAPPDATA%</summary>
 public class SettingsServiceTests : IDisposable
 {
     // 每个测试方法独立的临时根目录: xunit 每个方法新建实例, 结束后调用 Dispose 清理
     private readonly string _tempRoot = Path.Combine(
         Path.GetTempPath(), "SmartEdgeHMI.Tests", Guid.NewGuid().ToString("N"));
 
-    /// <summary>首次运行且设置目录不可写时应 fail-soft: 构造不抛异常, 使用内存默认值</summary>
     [Fact]
     public void 首次运行_目录不可写_不抛异常且使用默认值()
     {
@@ -28,7 +27,6 @@ public class SettingsServiceTests : IDisposable
         Assert.Equal(115200, service.Current.Connection.BaudRate);
     }
 
-    /// <summary>首次运行且目录可写时应写出 settings.json, 且 ComPort 默认为空(语义为未选择)</summary>
     [Fact]
     public void 首次运行_可写目录_写出settings_json且ComPort为空()
     {
@@ -40,7 +38,7 @@ public class SettingsServiceTests : IDisposable
         Assert.True(File.Exists(filePath));
         var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(filePath));
         Assert.NotNull(loaded);
-        Assert.Equal(string.Empty, loaded!.Connection.ComPort);
+        Assert.Equal(string.Empty, loaded!.Connection.ComPort); // 空串表示未选择端口, 与 null 是两种语义
         Assert.Equal("JSON", loaded.Connection.Protocol);
     }
 
@@ -66,7 +64,6 @@ public class SettingsServiceTests : IDisposable
         Assert.Equal("JSON", reloaded!.Connection.Protocol);
     }
 
-    /// <summary>旧版本 settings.json 缺 Protocol 键时应容忍: 保持默认 JSON, 不抛异常</summary>
     [Fact]
     public void 协议_旧文件缺键_容忍并保持默认JSON()
     {

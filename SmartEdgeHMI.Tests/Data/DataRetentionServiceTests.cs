@@ -10,6 +10,8 @@ using SmartEdgeHMI.Data.Retention;
 
 namespace SmartEdgeHMI.Tests.Data;
 
+/// <summary>数据保留策略: 保留边界、分批上限、关闭语义与清理后的可查性</summary>
+/// <remarks>所有用例使用临时库文件, 截止时间由固定基准时间推导, 不读系统时钟</remarks>
 public class DataRetentionServiceTests
 {
     // 固定基准时间: PurgeAsync 的时间基准完全由参数决定, 不依赖系统时钟(与同目录现有测试约定一致)
@@ -272,7 +274,7 @@ public class DataRetentionServiceTests
         }
     }
 
-    /// <summary>按临时文件库构造保留服务: in-memory 配置 + 建库; 保留天数由测试显式指定。</summary>
+    // 临时文件库 + in-memory 配置; 保留天数由测试显式指定, 不读用户设置
     private static async Task<(SqliteConnectionFactory Factory, DataRetentionService Service)> CreateFixtureAsync(
         string dbPath, int retentionDays, int alarmRetentionDays)
     {
@@ -291,7 +293,7 @@ public class DataRetentionServiceTests
         return (factory, new DataRetentionService(factory, config));
     }
 
-    /// <summary>构造遥测行: 值字段仅作占位, 测试只关心时间戳是否过期。</summary>
+    // 值字段仅作占位, 测试只关心时间戳是否过期
     private static SensorReadingRecord BuildTelemetry(DateTime timestamp) => new()
     {
         DeviceId = "TEST-01",
@@ -303,7 +305,7 @@ public class DataRetentionServiceTests
         QualityCode = DataQuality.Good
     };
 
-    /// <summary>构造报警行: 值字段仅作占位, 测试只关心时间戳是否过期。</summary>
+    // 值字段仅作占位, 测试只关心时间戳是否过期
     private static AlarmRecord BuildAlarm(DateTime timestamp) => new()
     {
         DeviceId = "TEST-01",
@@ -312,7 +314,7 @@ public class DataRetentionServiceTests
         TriggerValue = 75
     };
 
-    /// <summary>绕过业务仓储直接连库按 500 行/批(单事务)插入遥测种子数据, 保证确定性。</summary>
+    // 绕过业务仓储直接写入数据库: 500 行/批共用单事务, 避免异步刷盘让种子数据可见时间不确定
     private static async Task SeedTelemetryAsync(SqliteConnectionFactory factory, IReadOnlyList<SensorReadingRecord> readings)
     {
         await using var connection = await factory.CreateConnectionAsync();
@@ -330,7 +332,7 @@ public class DataRetentionServiceTests
         await transaction.CommitAsync();
     }
 
-    /// <summary>绕过业务仓储直接连库插入报警种子数据, 保证确定性。</summary>
+    // 绕过业务仓储直接写入数据库, 单事务保证种子数据全部可见
     private static async Task SeedAlarmsAsync(SqliteConnectionFactory factory, IReadOnlyList<AlarmRecord> records)
     {
         await using var connection = await factory.CreateConnectionAsync();
@@ -350,7 +352,7 @@ public class DataRetentionServiceTests
         return await connection.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {tableName}");
     }
 
-    /// <summary>读取表内全部 Timestamp(按时间升序): 表名来自测试内的固定调用点, 非外部输入。</summary>
+    // 表名来自测试内的固定调用点, 不拼接外部输入; 时间戳按升序取回便于直接比对
     private static async Task<List<DateTime>> QueryTimestampsAsync(SqliteConnectionFactory factory, string tableName)
     {
         await using var connection = await factory.CreateConnectionAsync();

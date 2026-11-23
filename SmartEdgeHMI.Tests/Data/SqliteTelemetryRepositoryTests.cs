@@ -43,7 +43,7 @@ public class SqliteTelemetryRepositoryTests
                     QualityCode = DataQuality.Good
                 });
 
-                // FlushIntervalMs=1000 (50 条或 1 秒窗口); 单条数据只可能由时间窗触发刷盘。
+                // FlushIntervalMs=1000 (50 条或 1 秒窗口), 单条数据只可能由时间窗触发刷盘;
                 // 3 秒是放宽的稳定性上界: 消费循环最坏情况需等满两个超时周期才比较时间窗
                 long count = await WaitForRowCountAsync(factory, TimeSpan.FromSeconds(3));
 
@@ -60,7 +60,7 @@ public class SqliteTelemetryRepositoryTests
         }
     }
 
-    /// <summary>轮询 TelemetryHistory 行数, 限时内未出现数据返回 0。</summary>
+    // 轮询 TelemetryHistory 行数; 限时内没有数据则返回 0
     private static async Task<long> WaitForRowCountAsync(SqliteConnectionFactory factory, TimeSpan limit)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -265,7 +265,7 @@ public class SqliteTelemetryRepositoryTests
         }
     }
 
-    /// <summary>按临时文件库构造遥测仓储与工厂: in-memory 配置 + 建库; 工厂供测试直连灌种子数据。</summary>
+    // 临时文件库 + in-memory 配置; 工厂一并返回, 供测试直接建立连接写入种子数据
     private static async Task<(SqliteTelemetryRepository Repo, SqliteConnectionFactory Factory)> CreateFixtureAsync(string dbPath)
     {
         var config = new ConfigurationBuilder()
@@ -281,11 +281,9 @@ public class SqliteTelemetryRepositoryTests
         return (new SqliteTelemetryRepository(factory), factory);
     }
 
-    /// <summary>
-    /// 构造 10 桶 × 每桶 100 行的种子数据: 桶宽 1 秒(总跨度 10 秒 / targetPoints=100),
-    /// 行间隔 10ms 且整体偏移 5ms, 让每行都远离整秒桶边界(规避 julianday 的浮点量化误差);
-    /// 桶 k 的第 i 行温度 = k*100 + i, 每桶最高温/最低温可区分。
-    /// </summary>
+    // 10 桶 × 每桶 100 行, 桶宽 1 秒(总跨度 10 秒 / targetPoints=100);
+    // 行间隔 10ms 且整体偏移 5ms, 让每行远离整秒桶边界, 规避 julianday 的浮点量化误差;
+    // 桶 k 的第 i 行温度 = k*100 + i, 因此每桶的最高温与最低温都可区分
     private static List<SensorReadingRecord> BuildBucketedDataset()
     {
         var readings = new List<SensorReadingRecord>(1000);
@@ -299,7 +297,7 @@ public class SqliteTelemetryRepositoryTests
         return readings;
     }
 
-    /// <summary>构造遥测行: 温度可区分, 其余字段为占位值。</summary>
+    // 只关心时间戳与温度, 其余字段用占位值
     private static SensorReadingRecord BuildTelemetry(DateTime timestamp, double temperatureCelsius) => new()
     {
         DeviceId = "TEST-01",
@@ -311,7 +309,7 @@ public class SqliteTelemetryRepositoryTests
         QualityCode = DataQuality.Good
     };
 
-    /// <summary>绕过 SqliteTelemetryRepository 的 Channel 异步刷盘, 直接连库按 500 行/批(单事务)插入种子数据, 保证确定性。</summary>
+    // 绕过 Channel 异步刷盘直接写入数据库, 否则种子数据的可见时间不确定; 500 行/批共用单事务
     private static async Task SeedTelemetryAsync(SqliteConnectionFactory factory, IReadOnlyList<SensorReadingRecord> readings)
     {
         await using var connection = await factory.CreateConnectionAsync();

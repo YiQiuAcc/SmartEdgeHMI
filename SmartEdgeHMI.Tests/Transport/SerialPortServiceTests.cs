@@ -5,6 +5,11 @@ using SmartEdgeHMI.Protocols.Transports.Serial;
 
 namespace SmartEdgeHMI.Tests.Transport;
 
+/// <summary>串口服务的回归: 打开失败不伪装成功, 以及会话归属判定</summary>
+/// <remarks>
+/// 用例依赖真实的 <see cref="SerialPort"/> 构造函数(不打开句柄), 无需硬件;
+/// 其中一条用例需要等待 6 秒以覆盖稳定性延迟窗口, 属于有意的慢用例。
+/// </remarks>
 public class SerialPortServiceTests
 {
     [Fact]
@@ -15,7 +20,7 @@ public class SerialPortServiceTests
         using var service = new SerialPortService(serviceProvider);
         service.StateChanged += (portName, state) => stateEvents.Add((portName, state));
 
-        // 打开不存在的串口不应抛出异常（原缺陷会吞掉异常后继续走成功路径）
+        // 打开不存在的串口不应抛出异常
         var exception = Record.Exception(() => service.OpenPort("COM99", 115200));
 
         Assert.Null(exception);

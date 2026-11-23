@@ -6,11 +6,14 @@ using SmartEdgeHMI.Utils;
 
 namespace SmartEdgeHMI.Core.Services;
 
-/// <summary>Watchdog 心跳客户端: 通过命名管道定期发送心跳, Watchdog 超时未收到则判定 HMI 异常并重启</summary>
-/// <remarks>构造心跳客户端</remarks>
+/// <summary>Watchdog 心跳客户端: 经命名管道按固定间隔发送心跳, Watchdog 超时未收到即判定 HMI 无响应并重启进程</summary>
+/// <remarks>
+/// 管道断开视为 Watchdog 未运行, 按 <c>ReconnectDelayMs</c> 无限重连, 不向调用方冒泡异常。
+/// <see cref="Dispose"/> 只取消不等待: 在飞的心跳任务在下一次检查点时退出, 其异常由 TaskExtensions 记录。
+/// </remarks>
 public sealed class WatchdogHeartbeatClient(ISettingsService settingsService) : IDisposable
 {
-    // 管道名按本程序所在目录派生, 与 Watchdog 侧按同一规则取值; 静态只读保证只算一次, 避免每次重连都做一次 SHA256
+    // 管道名按程序所在目录派生, 与 Watchdog 侧同一规则; 静态只读保证只算一次 SHA256
     private static readonly string _pipeName = WatchdogPipeName.For(AppContext.BaseDirectory);
 
     private readonly CancellationTokenSource _cts = new();
@@ -40,9 +43,9 @@ public sealed class WatchdogHeartbeatClient(ISettingsService settingsService) : 
             catch (TimeoutException)
             {
 #if DEBUG
-
+                // 调试构建下不输出: 本地调试一般不启动 Watchdog, 逐轮记录会掩盖有用输出
 #else
-            Log.Debug("Watchdog 未运行或未就绪, {Interval}ms 后重试...", settingsService.Current.Watchdog.HeartbeatIntervalMs);
+                Log.Debug("Watchdog 未运行或未就绪, {Interval}ms 后重试...", settingsService.Current.Watchdog.HeartbeatIntervalMs);
 #endif
             }
             catch (OperationCanceledException) { break; }

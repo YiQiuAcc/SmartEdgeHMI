@@ -16,9 +16,15 @@ using SmartEdgeHMI.Views;
 
 namespace SmartEdgeHMI;
 
+/// <summary>进程组合根: 日志、DI 容器、单实例互斥、全局异常兜底与退出清理</summary>
+/// <remarks>
+/// 启动顺序不可随意调整, 日志最先就绪, 其次配置与 DI, 然后校验设置、初始化数据库、启动后台服务, 最后建主窗口。
+/// </remarks>
 public partial class App : Application
 {
     private Mutex? _appMutex;
+
+    // Global\ 前缀使互斥体跨终端会话生效
     private const string AppGuid = "Global\\SmartEdgeHMI_Unique_Application_Mutex_Guid_2026";
 
     private const string ZhCnCulture = "zh-CN";
@@ -34,10 +40,11 @@ public partial class App : Application
     public static string LanguageButtonText =>
         LocalizationService.Instance.CurrentCulture.Name == ZhCnCulture ? "EN" : "中文";
 
+    /// <summary>语言切换用的轻量命令, 不依赖 MVVM 基础设施, 以便在 XAML 里直接绑定</summary>
     private sealed class RelayCommand(Action execute) : ICommand
     {
 #pragma warning disable CS0067
-
+        // CanExecute 恒为 true, 从不触发该事件; 事件本身是 ICommand 契约的一部分
         public event EventHandler? CanExecuteChanged;
 #pragma warning restore CS0067
 
@@ -78,7 +85,7 @@ public partial class App : Application
             .WriteTo.Sink(new WpfSerilogSink())
             .CreateLogger();
 
-        // 把日志文件实际落点写进日志, 便于排查写入位置(尤其发生目录回退时)
+        // 把日志文件实际落点写进日志, 便于排查写入位置
         Log.Information("日志文件目录: {LogDirectory}", logDirectory);
     }
 
@@ -111,7 +118,7 @@ public partial class App : Application
         return candidates[^1];
     }
 
-    /// <summary>检查目录可创建且可写(写入并删除探针文件)</summary>
+    /// <summary>检查目录可创建且可写</summary>
     private static bool IsDirectoryWritable(string directory)
     {
         try
@@ -159,11 +166,11 @@ public partial class App : Application
             .AddAppServices()
             .BuildServiceProvider();
 
-        // 间接安全地初始化静态依赖
+        // 静态入口只在这里赋值一次; 其余组件通过 App.ServiceProvider 取服务, 测试不会经过此路径
         SetStaticDependencies(config, services);
 
-        // 启动配置校验: 服务容器构建完成后、数据库初始化前拦截非法参数(如 0 波特率), 避免带病启动。
-        // Environment.Exit 不走 OnExit, 已获取的 Mutex 由 OS 在进程退出时释放。
+        // 启动配置校验: 服务容器构建完成后、数据库初始化前拦截非法参数,
+        // Environment.Exit 不触发 OnExit, 已获取的 Mutex 由 OS 在进程退出时释放。
         var settingsErrors = AppSettingsValidator.Validate(
             ServiceProvider.GetRequiredService<ISettingsService>().Current);
         if (settingsErrors.Count > 0)
@@ -181,11 +188,12 @@ public partial class App : Application
 
         Log.Information("设置校验通过");
 
+        // 启动期同步等待数据库建表与迁移, 失败会向上冒泡进入全局异常处理
         ServiceProvider.GetRequiredService<SqliteConnectionFactory>()
             .InitializeDatabaseAsync()
             .GetAwaiter().GetResult();
 
-        // 启动数据保留策略后台清理(Start 内部自建循环, 此处不 await, 失败不影响主程序)
+        // 启动数据保留策略后台清理, Start 内部自建循环, 此处不 await, 失败不影响主程序
         ServiceProvider.GetRequiredService<IDataRetentionService>().Start();
 
         // 启动 Watchdog 心跳客户端
@@ -246,7 +254,7 @@ public partial class App : Application
             var heartbeatClient = ServiceProvider.GetService<WatchdogHeartbeatClient>();
             heartbeatClient?.Dispose();
 
-            // 数据保留服务与遥测仓储一并收尾, 合计最多等 5 秒, 异常只记日志不阻断退出
+            // 数据保留服务与遥测仓储收尾, 异常只记日志不阻断退出
             var retentionService = ServiceProvider.GetService<IDataRetentionService>() as IAsyncDisposable;
             var telemetryRepo = ServiceProvider.GetService<ITelemetryRepository>() as IAsyncDisposable;
 

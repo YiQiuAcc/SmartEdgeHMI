@@ -24,7 +24,6 @@ public class ConnectionViewModelAutoConnectTests
     [InlineData("1")]
     public void ParseProtocol_MissingOrInvalid_FallsBackToJsonWithoutThrowing(string? stored)
     {
-        // "1" 也不得被 Enum 风格解析成 Modbus: settings.json 是人写文件, 只认协议名
         Assert.Equal(CommunicationProtocol.JSON, ConnectionViewModel.ParseProtocol(stored));
     }
 

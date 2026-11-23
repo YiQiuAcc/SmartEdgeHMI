@@ -5,14 +5,12 @@ using SmartEdgeHMI.Core.Domain.MachineState;
 using SmartEdgeHMI.Core.Domain.ValueObjects;
 using SmartEdgeHMI.Core.Services;
 using SmartEdgeHMI.Data;
-using SmartEdgeHMI.Data.Entities;
 using SmartEdgeHMI.Data.Repositories;
 using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.Tests.State;
 
-/// <summary>「状态机事件 → 落库」端到端回归: 真 AlarmStateMachine + 真 SqliteAlarmRepository(临时文件库),
-/// 锁住 3ab7619 那类缺陷 —— 应用日志已打印「完全恢复 ACK→NORMAL」, 数据库那条记录却停在 ACK 且 ClearedAt IS NULL</summary>
+/// <summary>「状态机事件, 写入数据库」端到端回归: 真 AlarmStateMachine, 真 SqliteAlarmRepository(临时文件库)</summary>
 public class AlarmPersistenceTests : IDisposable
 {
     private const string DeviceA = "Sensor_01";
@@ -21,7 +19,7 @@ public class AlarmPersistenceTests : IDisposable
     private readonly List<string> _tempDirectories = [];
     private readonly List<string> _dbPaths = [];
 
-    /// <summary>构造真状态机 + 真临时文件库: 设置走临时目录重载, 避免测试写真实 %LOCALAPPDATA% 配置与数据库</summary>
+    // 真状态机, 真临时文件库; 设置目录使用临时目录, 避免测试写真实的 %LOCALAPPDATA% 配置与数据库
     private (AlarmStateMachine Machine, SqliteAlarmRepository Repo, string DbPath) CreateFixture()
     {
         string settingsDirectory = Path.Combine(
@@ -45,20 +43,23 @@ public class AlarmPersistenceTests : IDisposable
         return (new AlarmStateMachine(settingsService), new SqliteAlarmRepository(factory, dbConfig), dbPath);
     }
 
-    /// <summary>完整链路: 故障触发落库 → 订阅 AlarmStatesChanged 在回调里把 PendingAlarms 全量交给 UpdateAlarmStatesAsync
-    /// (MonitorViewModel.SyncAlarmStatesToDbAsync 的最小真实等价物) → 确认落库 → 恢复走完 → 重新从数据库查询,
-    /// 断言 State == NORMAL、ClearedAt != null、AcknowledgedAt != null。断言全部落在数据库读回结果上, 不是内存对象</summary>
+    /// <summary>故障, 确认, 恢复完成, 从数据库读回 NORMAL 且 ClearedAt / AcknowledgedAt 非空</summary>
+    /// <remarks>
+    /// 完整链路: 故障触发写入数据库, 订阅 AlarmStatesChanged 在回调里把 PendingAlarms 全量交给 UpdateAlarmStatesAsync
+    /// (MonitorViewModel.SyncAlarmStatesToDbAsync 的最小真实等价物), 确认写入数据库, 恢复完成, 重新从数据库查询。
+    /// 断言全部落在数据库读回结果上, 不是内存对象
+    /// </remarks>
     [Fact]
     public async Task 完整链路_故障确认后恢复走完_数据库读到NORMAL且ClearedAt与AcknowledgedAt非空()
     {
         var (machine, repo, _) = CreateFixture();
 
-        // 与 MonitorViewModel 相同的事件接线: 事件回调里把 PendingAlarms 全量交给仓储。
-        // 同步阻塞至落库完成, 让「状态机事件 → 落库」严格串行, 最终断言不存在异步时序上的不确定性
+        // 与 MonitorViewModel 相同的事件接线: 事件回调里把 PendingAlarms 全量交给仓储;
+        // 同步阻塞至写入数据库完成, 让「状态机事件, 写入数据库」严格串行, 最终断言不存在异步时序上的不确定性
         machine.AlarmStatesChanged += () =>
             repo.UpdateAlarmStatesAsync(machine.PendingAlarms).GetAwaiter().GetResult();
 
-        // 1. 制造故障: 产生 UNACK 报警并落库(与 MonitorViewModel.HandleNewAlarmAsync 相同: 保存后把自增 ID 回写进状态机持有的记录)
+        // 1. 制造故障: 产生 UNACK 报警并写入数据库(与 MonitorViewModel.HandleNewAlarmAsync 相同: 保存后把自增 ID 回写进状态机持有的记录)
         var alarm = machine.Evaluate(CreatePayload(DeviceA, ErrorCode.ThresholdExceeded));
         Assert.NotNull(alarm);
         Assert.Equal(AlarmState.UNACK, alarm.State);
@@ -79,7 +80,7 @@ public class AlarmPersistenceTests : IDisposable
         Assert.NotNull(afterAck.AcknowledgedAt);
         Assert.Null(afterAck.ClearedAt);
 
-        // 3. 故障恢复走完: 连续 3 条正常遥测达到防抖阈值(RecoveryDebounceCount = 3),
+        // 3. 故障恢复完成: 连续 3 条正常遥测达到防抖阈值(RecoveryDebounceCount = 3),
         //    第 3 条触发 ACK→NORMAL 与事件, 回调把 NORMAL + ClearedAt 的最终态同步进库
         for (int i = 0; i < 3; i++)
         {

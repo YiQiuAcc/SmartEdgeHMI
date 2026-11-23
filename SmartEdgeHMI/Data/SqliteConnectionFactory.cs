@@ -8,14 +8,17 @@ using SmartEdgeHMI.Core.Domain.ValueObjects;
 
 namespace SmartEdgeHMI.Data;
 
-/// <summary>SQLite 连接工厂: 管理连接字符串、Dapper 类型处理器注册、Schema 初始化与迁移。</summary>
+/// <summary>SQLite 连接工厂: 连接字符串管理、Dapper 类型处理器注册、Schema 初始化与迁移</summary>
+/// <remarks>
+/// 连接级 PRAGMA(<c>synchronous</c> / <c>temp_store</c>)不随库文件持久化, 因此每次打开连接后都要重新声明;
+/// TypeHandler 在静态构造中注册一次, 之后所有连接共用。
+/// </remarks>
 public sealed class SqliteConnectionFactory
 {
     private readonly string _connectionString;
 
     /// <summary>
-    /// 连接级 PRAGMA: synchronous/temp_store 是连接级设置, 不随库文件持久化, 须在每次打开连接后声明;
-    /// journal_mode=WAL 随库文件持久化, 此处一并声明但迁移判断不依赖它。
+    /// 建库与调优 PRAGMA: <c>journal_mode=WAL</c> 随库文件持久化, 其余为连接级设置需每次声明
     /// </summary>
     private const string ConnectionPragmas =
         """
@@ -24,6 +27,7 @@ public sealed class SqliteConnectionFactory
         PRAGMA temp_store = MEMORY;
         """;
 
+    /// <summary>Dapper 类型处理器只需注册一次, 放在静态构造里可避免每个实例重复注册</summary>
     static SqliteConnectionFactory()
     {
         SqlMapper.AddTypeHandler(new DataQualityTypeHandler());
@@ -35,11 +39,14 @@ public sealed class SqliteConnectionFactory
     {
         string raw = config["DatabaseSettings:DefaultConnection"] ?? "Data Source=SmartEdgeHMI.db";
         var builder = new SqliteConnectionStringBuilder(raw);
+        // 相对路径按程序目录解析, 从不同工作目录启动时应指向同一个库文件
         if (!Path.IsPathRooted(builder.DataSource))
             builder.DataSource = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, builder.DataSource));
         _connectionString = builder.ConnectionString;
     }
 
+    /// <summary>新建并打开一个连接, 返回前已应用连接级 PRAGMA</summary>
+    /// <remarks>调用方负责释放; 连接为每次操作新建, 不共享(由 Microsoft.Data.Sqlite 连接池复用底层句柄)</remarks>
     public async Task<SqliteConnection> CreateConnectionAsync()
     {
         var connection = new SqliteConnection(_connectionString);
@@ -48,6 +55,11 @@ public sealed class SqliteConnectionFactory
         return connection;
     }
 
+    /// <summary>建库、建索引并补齐历史库缺失的列, 可重复执行</summary>
+    /// <remarks>
+    /// 全部使用 IF NOT EXISTS / 列存在性判断, 因此每次启动都可安全调用;
+    /// 失败统一包装为 <see cref="InvalidOperationException"/>, 让调用方在启动阶段就暴露配置问题。
+    /// </remarks>
     public async Task InitializeDatabaseAsync()
     {
         try
@@ -83,6 +95,7 @@ public sealed class SqliteConnectionFactory
                 )
             """);
 
+            // 遥测查询以设备与时间范围为主, 由复合索引承担, 单列时间索引服务于跨设备的整段时间查询
             await connection.ExecuteAsync("""
                 CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON TelemetryHistory(Timestamp)
             """);

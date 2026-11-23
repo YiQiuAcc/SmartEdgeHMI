@@ -13,11 +13,11 @@ using SmartEdgeHMI.Utils.Math;
 
 namespace SmartEdgeHMI.Benchmarks;
 
-/// <summary>
-/// 查询基准: 三组"旧实现 vs 新实现"对照(报警历史 / 报警上下文 / 趋势降采样)。
-/// Legacy_* 是为对比保留的旧实现基线, 内联改写前的代码独立跑通, 不是生产代码;
+/// <summary>查询基准: 三组"旧实现 vs 新实现"对照(报警历史 / 报警上下文 / 趋势降采样)</summary>
+/// <remarks>
+/// Legacy_* 是为对比保留的旧实现基线, 内联改写前的代码可独立运行, 不是生产代码;
 /// New_* 调用当前仓储方法, 与生产路径完全一致(含连接工厂的 PRAGMA 声明)。
-/// </summary>
+/// </remarks>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
 public class QueryBenchmarks
@@ -75,7 +75,7 @@ public class QueryBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        // 统一时间基准: 数据均匀分布在"最近 30 天", 三组对照的查询窗口都由此推导
+        // 统一时间基准: 数据均匀分布在最近 30 天, 三组对照的查询窗口都由此推导
         _end = DateTime.Now;
 
         // 建库建表: 表结构与索引和 SqliteConnectionFactory.InitializeDatabaseAsync 保持一致
@@ -113,14 +113,14 @@ public class QueryBenchmarks
     [GlobalCleanup]
     public void Cleanup()
     {
-        // Microsoft.Data.Sqlite 默认连接池会保留库文件句柄, 须先清池再删除
+        // Microsoft.Data.Sqlite 默认连接池会保留库文件句柄, 先清池再删除
         SqliteConnection.ClearAllPools();
         DeleteDatabaseFiles();
     }
 
-    // ================================== 第一组: 报警历史查询 ==================================
+    // 第一组: 报警历史查询 —— 旧实现整表载入内存后过滤, 新实现在 SQL 内完成过滤与 LIMIT
 
-    /// <summary>报警历史旧实现基线(为对比保留, 不是生产代码): SELECT * 全表读入 + LINQ 时间过滤 + Take。</summary>
+    /// <summary>报警历史旧实现基线(为对比保留, 不是生产代码): SELECT * 全表读入, LINQ 时间过滤, Take。</summary>
     [Benchmark]
     public async Task<List<AlarmRecord>> Legacy_AlarmHistory()
     {
@@ -135,17 +135,17 @@ public class QueryBenchmarks
         return [.. result.Take(AlarmHistoryLimit)];
     }
 
-    /// <summary>报警历史新实现: 过滤条件与 LIMIT 全部下推 SQL (TASK-101)。</summary>
+    /// <summary>报警历史新实现: 过滤条件与 LIMIT 全部下推 SQL。</summary>
     [Benchmark]
     public async Task<List<AlarmRecord>> New_AlarmHistory()
         => await _alarmRepo.GetAlarmHistoryAsync(
             new AlarmHistoryFilter { From = _end.AddDays(-1), To = _end, Limit = AlarmHistoryLimit });
 
-    // ================================== 第二组: 报警上下文查询 ==================================
+    // 第二组: 报警上下文查询 —— 旧实现把两张表全量读入内存再关联, 新实现按报警窗口逐条下推查询
 
     /// <summary>
     /// 报警上下文旧实现基线(为对比保留, 不是生产代码):
-    /// 全表读入报警 + 全表读入遥测(20 万行) + GroupJoin 按设备关联 + 窗口过滤。
+    /// 全表读入报警, 全表读入遥测(20 万行), GroupJoin 按设备关联, 窗口过滤。
     /// </summary>
     [Benchmark]
     public async Task<List<AlarmWithTelemetry>> Legacy_AlarmContext()
@@ -173,15 +173,16 @@ public class QueryBenchmarks
             })];
     }
 
-    /// <summary>报警上下文新实现: 报警列表 SQL 过滤, 再按报警窗口逐条下推查遥测 (TASK-102)。</summary>
+    /// <summary>报警上下文新实现: 报警列表 SQL 过滤, 再按报警窗口逐条下推查遥测。</summary>
     [Benchmark]
     public async Task<List<AlarmWithTelemetry>> New_AlarmContext()
         => await _alarmRepo.GetAlarmsWithTelemetryContextAsync(
             new AlarmHistoryFilter { Limit = AlarmContextLimit }, TimeSpan.FromMinutes(5));
 
-    // ================================== 第三组: 趋势查询降采样 ==================================
+    // 第三组: 趋势查询降采样 —— 旧实现把 30 天原始行全部读回再用 LTTB 压缩, 新实现在 SQL 内按桶取样
 
-    /// <summary>趋势查询旧实现基线(为对比保留, 不是生产代码): 30 天全量读入内存(20 万行) + LTTB 降到 1000 点。</summary>
+    /// <summary>趋势查询旧实现基线(为对比保留, 不是生产代码):
+    /// 30 天全量读入内存(20 万行), LTTB 降到 1000 点。</summary>
     [Benchmark]
     public async Task<List<SensorReadingRecord>> Legacy_Trend()
     {
@@ -196,12 +197,12 @@ public class QueryBenchmarks
         return LttbDownsampler.Downsample(rawData, TrendTargetPoints);
     }
 
-    /// <summary>趋势查询新实现: SQL 端分桶取样每桶温度 min/max 两个真实行, 超限时兜底 LTTB (TASK-103)。</summary>
+    /// <summary>趋势查询新实现: SQL 端分桶取样每桶温度 min/max 两个真实行, 超限时兜底 LTTB。</summary>
     [Benchmark]
     public async Task<List<SensorReadingRecord>> New_Trend()
         => await _telemetryRepo.GetTelemetryHistoryAsync(_end.AddDays(-30), _end, TrendTargetPoints);
 
-    /// <summary>灌入 20 万行遥测: 最近 30 天均匀分布(约 12.96 秒/行), 2 台设备交替, 温湿度伪随机游走。</summary>
+    /// <summary>写入 20 万行遥测: 最近 30 天均匀分布, 2 台设备交替, 温湿度伪随机游走。</summary>
     private void SeedTelemetry(SqliteConnection connection)
     {
         var rng = new Random(42);
@@ -241,7 +242,7 @@ public class QueryBenchmarks
         transaction.Commit();
     }
 
-    /// <summary>灌入 5000 行报警: 最近 30 天均匀分布(约 518.4 秒/行), 2 台设备 × 2 种编码交替。</summary>
+    /// <summary>写入 5000 行报警: 最近 30 天均匀分布, 2 台设备 × 2 种编码交替。</summary>
     private void SeedAlarms(SqliteConnection connection)
     {
         var start = _end.AddDays(-30);
@@ -275,9 +276,9 @@ public class QueryBenchmarks
         transaction.Commit();
     }
 
-    private void DeleteDatabaseFiles()
+    private static void DeleteDatabaseFiles()
     {
-        // 连接均已 dispose 且池已清空, 直接删除; 兜底忽略偶发句柄延迟
+        // 连接均已 dispose 且池已清空, 直接删除
         foreach (string file in new[] { _dbPath, _dbPath + "-wal", _dbPath + "-shm" })
         {
             try { if (File.Exists(file)) File.Delete(file); }

@@ -14,7 +14,7 @@
     避免备份到正在写入的数据；其他目录的 SmartEdgeHMI 实例不受影响。
 
 .OUTPUTS
-    退出码：0 成功（含 -DryRun 预演完成）；1 未预期异常；2 检测到 SmartEdgeHMI 进程在跑；
+    退出码：0 成功（含 -DryRun 预演完成）；1 未预期异常；2 检测到 SmartEdgeHMI 进程正在运行；
     3 AppDir 下没有任何数据库文件；4 备份副本自校验失败。
 
 .EXAMPLE
@@ -58,7 +58,7 @@ function Stop-Run {
 function Test-AppClosed {
     # 守卫：目标目录里正在运行的 SmartEdgeHMI 进程 → 拒绝（-DryRun 也一样），避免碰正在写入的数据。
     # 判定依据：进程可执行文件所在目录是否就是目标目录；路径读不出来时按最坏情况从严拒绝。
-    # 机器上其他目录的 SmartEdgeHMI 实例（例如正在跑的观察进程）不影响对别的目录的备份/恢复。
+    # 机器上其他目录的 SmartEdgeHMI 实例（例如正在运行的观察进程）不影响对别的目录的备份/恢复。
     param(
         [Parameter(Mandatory = $true)][string]$Action,
         [Parameter(Mandatory = $true)][string]$TargetDir
@@ -121,7 +121,7 @@ function Read-SqliteInfo {
     # 用本机 python 读 SQLite 元信息：先把备份副本（含 -wal，若有）复制到系统临时目录里的
     # 隔离工作区，再在那里以普通连接打开——这样 PRAGMA journal_mode 才会如实报告 WAL 模式
     # （immutable/mode=ro 只读方式会把它误报成 delete），行数也能包含 -wal 里未 checkpoint
-    # 的数据，同时备份副本本身一个字节都不会被碰。任何一步失败都只记 null，绝不影响备份。
+    # 的数据，同时不会向备份副本写入任何字节。任何一步失败都只记 null，不影响备份。
     param(
         [Parameter(Mandatory = $true)][string]$DbPath,
         [string]$WalPath
@@ -182,14 +182,14 @@ print(json.dumps(info))
 }
 
 function Invoke-BackupMain {
-    # 1. 守卫（-DryRun 也执行）：目标目录里有 SmartEdgeHMI 进程在跑 → 退出码 2
+    # 守卫（-DryRun 也执行）：目标目录里有 SmartEdgeHMI 进程正在运行 → 退出码 2
     Test-AppClosed -Action '冷备份' -TargetDir $AppDir
 
     $appPath = [System.IO.Path]::GetFullPath($AppDir)
     Write-Host '== SmartEdgeHMI 用户数据冷备份 =='
     Write-Host "数据目录：$appPath"
 
-    # 2. 定位数据文件（存在才纳入）
+    # 定位数据文件（存在才纳入）
     $dataFiles = Get-DataFiles -Dir $appPath
     $totalBytes = ($dataFiles | Measure-Object -Property Length -Sum).Sum
     Write-Host ("找到 {0} 个数据文件：" -f $dataFiles.Count)
@@ -197,7 +197,7 @@ function Invoke-BackupMain {
         Write-Host ("  {0}（{1:N0} 字节）" -f $f.Name, $f.Length)
     }
 
-    # 产出目录：<OutDir>\<yyyyMMdd-HHmmss>（同一秒重跑时追加序号，绝不覆盖已有备份）
+    # 产出目录：<OutDir>\<yyyyMMdd-HHmmss>（同一秒内重复执行时追加序号，不覆盖已有备份）
     $outRoot = [System.IO.Path]::GetFullPath($OutDir)
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $backupDir = Join-Path $outRoot $stamp
@@ -207,7 +207,7 @@ function Invoke-BackupMain {
         $seq++
     }
 
-    # 5. -DryRun：只打印文件清单、目标目录、预计字节数，不创建任何文件
+    # -DryRun 预演：只打印文件清单、目标目录与预计字节数，不创建任何文件
     if ($DryRun) {
         Write-Host ''
         Write-Host '—— DryRun 预演：以下为执行计划，不创建任何文件 ——'
@@ -219,7 +219,7 @@ function Invoke-BackupMain {
         return
     }
 
-    # 3. 产出：拷贝（保留修改时间）+ manifest.json
+    # 产出：拷贝（保留修改时间）并写入 manifest.json
     Write-Host ''
     Write-Host '第 1 步：拷贝数据文件（保留修改时间）…'
     [System.IO.Directory]::CreateDirectory($backupDir) | Out-Null
@@ -260,7 +260,7 @@ function Invoke-BackupMain {
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
     Write-Host "  已写入：$manifestPath"
 
-    # 4. 自校验：对备份副本重算 SHA256 与 manifest 比对，不一致 → 退出码 4
+    # 自校验：对备份副本重算 SHA256 与 manifest 比对，不一致 → 退出码 4
     Write-Host '第 4 步：自校验（重算备份副本 SHA256，与 manifest 比对）…'
     foreach ($entry in $fileEntries) {
         $copyPath = Join-Path $backupDir $entry.name
@@ -275,7 +275,6 @@ function Invoke-BackupMain {
         Write-Host "  校验通过：$($entry.name)"
     }
 
-    # 6. 摘要
     Write-Host ''
     Write-Host ('摘要：备份目录={0}；文件数={1}；总字节={2:N0}；校验=通过' -f $backupDir, $fileEntries.Count, $totalBytes) -ForegroundColor Green
 }

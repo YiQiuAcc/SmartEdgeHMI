@@ -6,21 +6,23 @@ using SmartEdgeHMI.Shared;
 
 namespace SmartEdgeHMI.Watchdog;
 
-/// <summary>
-/// SmartEdgeHMI Watchdog 守护进程
-/// 1. 通过命名管道监听 HMI 主进程的心跳信号
-/// 2. 如果心跳超时(HMI 进程无响应或崩溃), 自动重新启动 HMI
-/// 3. 记录自身运行日志, 避免与 HMI 日志文件冲突
-/// </summary>
+/// <summary>Watchdog 守护进程: 监听 HMI 心跳, 进程退出或心跳超时即启动新实例</summary>
+/// <remarks>
+/// 三条约束决定了实现形态:
+/// 一是心跳管道名必须与 HMI 侧按同一规则派生, 否则连不上;
+/// 二是管道未绑定时不得按超时终止进程, 否则无法区分 HMI 无响应和心跳通道不可用;
+/// 三是日志独立于 HMI, 避免两者争抢同一文件。
+/// </remarks>
 public static class Program
 {
     // 心跳管道名按被测程序所在目录派生(见 WatchdogPipeName), 在 Main 中路径校验通过后赋值
     private static string _pipeName = string.Empty;
     private const string MutexName = "Global\\SmartEdgeHMI_Watchdog_Mutex";
 
-    // 心跳超时阈值(毫秒)
+    /// <summary>心跳超时阈值: 超过该时长未收到心跳即判定 HMI 无响应</summary>
     private const int HeartbeatTimeoutMs = 10_000;
-    // Watchdog 检测周期(毫秒)
+
+    /// <summary>监控循环的检测周期</summary>
     private const int WatchdogTickMs = 2_000;
 
     // 管道服务端当前是否已成功创建(处于等待连接/读取心跳状态); 只有它为真时才允许按心跳超时杀进程
@@ -28,6 +30,7 @@ public static class Program
     // 上次打印管道绑定失败 ERR 日志的时刻, 用于把重复报错降噪为 60 秒一条
     private static DateTime _lastPipeBindErrorLog = DateTime.MinValue;
 
+    // 由管道线程写、监控线程读, 未加锁: 依赖 x64 上 8 字节字段的原子访问
     private static DateTime _lastHeartbeat = DateTime.MinValue;
     private static Process? _hmiProcess;
     private static string? _hmiExecutablePath;
@@ -82,7 +85,7 @@ public static class Program
         // 管道名必须在启动 HMI 之前确定: 主程序按同一规则派生管道名才能连上本进程
         _pipeName = WatchdogPipeName.For(_hmiWorkingDirectory);
 
-        // 合并日志调用, 满足单代码块少于 3 个 Information 日志的限制
+        // 合并成一条: 目标路径、工作目录与管道名是排查连接问题的同一组上下文, 分行打印反而难对照
         Log.Information("Watchdog 守护进程启动。监控目标: {Path}, 工作目录: {Dir}, 管道: {Pipe}", _hmiExecutablePath, _hmiWorkingDirectory, _pipeName);
 
         // 启动 HMI 主进程
@@ -196,7 +199,7 @@ public static class Program
             }
             catch (Exception ex)
             {
-                // 绑定失败常见于管道名被其他进程占用, 每 2 秒刷一条 ERR 会淹没日志:
+                // 绑定失败常见于管道名被其他进程占用
                 // 距上次打印不足 60 秒时降为 Debug, 避免 ERROR 级别刷屏
                 if (DateTime.UtcNow - _lastPipeBindErrorLog >= TimeSpan.FromSeconds(60))
                 {
@@ -280,8 +283,7 @@ public static class Program
                 }
 
                 // 如果超过心跳超时阈值且 HMI 仍在运行, 判定为无响应, 强制重启。
-                // 只有管道已绑定才允许按超时杀进程: 管道未绑定时无法区分「主程序无响应」与「心跳通道根本不可用」,
-                // 此时杀进程只会把健康进程反复重启, 属于雪崩放大
+                // 只有管道已绑定才允许按超时终止进程: 管道未绑定时无法区分「主程序无响应」与「心跳通道完全不可用」
                 if (_pipeServerBound && _lastHeartbeat != DateTime.MinValue && elapsedSinceHeartbeat.TotalMilliseconds > HeartbeatTimeoutMs)
                 {
                     Log.Warning("HMI 心跳超时 ({Seconds:F1}s 无心跳), 正在强制重启...", elapsedSinceHeartbeat.TotalSeconds);
@@ -303,7 +305,8 @@ public static class Program
         }
     }
 
-    /// <summary>强制终止 HMI 进程</summary>
+    /// <summary>终止 HMI 进程: 先请求关闭窗口, 3 秒内未退出则终止整棵进程树</summary>
+    /// <remarks>进程树一并终止, 避免 HMI 启动的子进程(如异常对话框宿主)残留并继续占用管道</remarks>
     private static void KillHmiProcess()
     {
         if (_hmiProcess?.HasExited != false) return;

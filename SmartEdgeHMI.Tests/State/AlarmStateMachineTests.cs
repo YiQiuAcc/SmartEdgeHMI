@@ -8,6 +8,11 @@ using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.Tests.State;
 
+/// <summary>ISA-18.2 报警状态机: 四态迁移、恢复去抖、一键确认与事件窗口内的可见性</summary>
+/// <remarks>
+/// 所有用例共用一个真实 <see cref="SettingsService"/>, 但设置目录指向临时目录, 不触碰用户配置;
+/// 防抖次数取配置默认值 3, 因此每个"恢复"场景都需要连续 3 条正常读数。
+/// </remarks>
 public class AlarmStateMachineTests : IDisposable
 {
     // 每个测试方法创建的临时设置目录, Dispose 时统一清理
@@ -113,10 +118,9 @@ public class AlarmStateMachineTests : IDisposable
             result = machine.Evaluate(normalPayload);
         }
 
-        // 最后一次 Evaluate 应驱动状态变迁, 但返回 null(因为不是新报警)
+        // 最后一次 Evaluate 应驱动状态变迁, 但返回 null(不是新报警)
         Assert.Null(result);
 
-        // 验证报警状态已变迁到 RTN_UNACK
         var pendingAlarms = machine.PendingAlarms;
         var alarm = Assert.Single(pendingAlarms);
         Assert.Equal(AlarmState.RTN_UNACK, alarm.State);
@@ -127,7 +131,7 @@ public class AlarmStateMachineTests : IDisposable
 
     #region ISA-18.2 状态机转移测试
 
-    /// <summary>UNACK → ACK:操作员确认报警后应进入 ACK 状态</summary>
+    /// <summary>UNACK → ACK: 操作员确认报警后应进入 ACK 状态</summary>
     [Fact]
     public void Acknowledge_UnacknowledgedAlarm_ShouldTransitionToAck()
     {
@@ -144,7 +148,7 @@ public class AlarmStateMachineTests : IDisposable
         Assert.NotNull(acked.AcknowledgedAt);
     }
 
-    /// <summary>RTN_UNACK → NORMAL:恢复未确认状态下确认应转为 NORMAL(报警消除)</summary>
+    /// <summary>RTN_UNACK → NORMAL: 恢复未确认状态下确认应转为 NORMAL(报警消除)</summary>
     [Fact]
     public void Acknowledge_RTN_UNACK_ShouldTransitionToNormal()
     {
@@ -152,26 +156,22 @@ public class AlarmStateMachineTests : IDisposable
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
-        // 恢复(连续正常数据达到防抖阈值)
         var normalPayload = CreateNormalPayload("Sensor_01");
         for (int i = 0; i < 3; i++)
         {
             machine.Evaluate(normalPayload);
         }
 
-        // 确认 RTN_UNACK 状态
         var pendingBeforeAck = machine.PendingAlarms;
         var rtnUnackAlarm = Assert.Single(pendingBeforeAck);
         Assert.Equal(AlarmState.RTN_UNACK, rtnUnackAlarm.State);
 
-        // 确认后应变为 NORMAL
         machine.Acknowledge(rtnUnackAlarm.DeviceId);
 
-        // NORMAL 状态的报警不应在 PendingAlarms 中
         Assert.Empty(machine.PendingAlarms);
     }
 
-    /// <summary>ACK → NORMAL:已确认后恢复应转为 NORMAL</summary>
+    /// <summary>ACK → NORMAL: 已确认后恢复应转为 NORMAL</summary>
     [Fact]
     public void Acknowledge_ThenRecover_ShouldTransitionToNormal()
     {
@@ -180,21 +180,18 @@ public class AlarmStateMachineTests : IDisposable
         var alarm = machine.Evaluate(errorPayload);
         Assert.NotNull(alarm);
 
-        // 确认
         machine.Acknowledge(alarm.DeviceId);
 
-        // 恢复(连续正常数据达到防抖阈值)
         var normalPayload = CreateNormalPayload("Sensor_01");
         for (int i = 0; i < 3; i++)
         {
             machine.Evaluate(normalPayload);
         }
 
-        // ACK 状态恢复后应变为 NORMAL, 从 PendingAlarms 中移除
         Assert.Empty(machine.PendingAlarms);
     }
 
-    /// <summary>RTN_UNACK → UNACK:恢复未确认状态下重新报警应回到 UNACK</summary>
+    /// <summary>RTN_UNACK → UNACK: 恢复未确认状态下重新报警应回到 UNACK</summary>
     [Fact]
     public void Reactivate_RTN_UNACK_ShouldTransitionBackToUNACK()
     {
@@ -202,21 +199,17 @@ public class AlarmStateMachineTests : IDisposable
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
-        // 恢复
         var normalPayload = CreateNormalPayload("Sensor_01");
         for (int i = 0; i < 3; i++)
         {
             machine.Evaluate(normalPayload);
         }
 
-        // 验证 RTN_UNACK
         Assert.Single(machine.PendingAlarms);
         Assert.Equal(AlarmState.RTN_UNACK, machine.PendingAlarms[0].State);
 
-        // 重新报警
         machine.Evaluate(errorPayload);
 
-        // 应回到 UNACK
         var alarms = machine.PendingAlarms;
         var alarm = Assert.Single(alarms);
         Assert.Equal(AlarmState.UNACK, alarm.State);
@@ -233,7 +226,6 @@ public class AlarmStateMachineTests : IDisposable
     {
         var machine = CreateMachine();
 
-        // 创建多个设备的报警
         var alarm1 = machine.Evaluate(CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded));
         var alarm2 = machine.Evaluate(CreatePayload("Sensor_02", DeviceStatus.Online, ErrorCode.SensorDisconnected));
         var alarm3 = machine.Evaluate(CreatePayload("Sensor_03", DeviceStatus.Online, ErrorCode.PowerLow));
@@ -242,13 +234,11 @@ public class AlarmStateMachineTests : IDisposable
         Assert.NotNull(alarm2);
         Assert.NotNull(alarm3);
 
-        // 恢复其中一个
         for (int i = 0; i < 3; i++)
         {
             machine.Evaluate(CreateNormalPayload("Sensor_03"));
         }
 
-        // 一键确认
         machine.AcknowledgeAll();
 
         // Sensor_01 和 Sensor_02 应为 ACK(仍在报警中但已确认) Sensor_03 应为 NORMAL(已恢复并确认后移除)
@@ -277,7 +267,7 @@ public class AlarmStateMachineTests : IDisposable
 
     #region 边缘场景测试
 
-    /// <summary>防抖计数功能验证:恢复信号需要连续 N 次才能触发状态变更</summary>
+    /// <summary>防抖计数功能验证: 恢复信号需要连续 N 次才能触发状态变更</summary>
     [Fact]
     public void RecoveryDebounce_ShouldRequireMultipleNormalReadings()
     {
@@ -311,17 +301,14 @@ public class AlarmStateMachineTests : IDisposable
         var alarm1 = machine.Evaluate(errorPayload);
         Assert.NotNull(alarm1);
 
-        // 确认并恢复
         machine.Acknowledge(alarm1.DeviceId);
         for (int i = 0; i < 3; i++)
         {
             machine.Evaluate(CreateNormalPayload("Sensor_01"));
         }
 
-        // 报警应完全消除
         Assert.Empty(machine.PendingAlarms);
 
-        // 重新报警: 应创建新记录
         var alarm2 = machine.Evaluate(errorPayload);
         Assert.NotNull(alarm2);
         Assert.Equal(AlarmState.UNACK, alarm2.State);
@@ -336,11 +323,9 @@ public class AlarmStateMachineTests : IDisposable
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
-        // 应该包含在 ActiveAlarms 中
         Assert.Single(machine.ActiveAlarms);
         Assert.True(machine.ActiveAlarms.ContainsKey("Sensor_01"));
 
-        // 确认并恢复
         var alarm = machine.PendingAlarms[0];
         machine.Acknowledge(alarm.DeviceId);
         for (int i = 0; i < 3; i++)
@@ -348,7 +333,6 @@ public class AlarmStateMachineTests : IDisposable
             machine.Evaluate(CreateNormalPayload("Sensor_01"));
         }
 
-        // NORMAL 状态不应在 ActiveAlarms 中
         Assert.Empty(machine.ActiveAlarms);
     }
 
@@ -363,7 +347,6 @@ public class AlarmStateMachineTests : IDisposable
 
         Assert.Equal(2, machine.PendingAlarms.Count);
 
-        // 确认 Sensor_01 不影响 Sensor_02
         var alarm1 = machine.PendingAlarms.First(a => a.DeviceId == "Sensor_01");
         machine.Acknowledge(alarm1.DeviceId);
 
@@ -379,7 +362,6 @@ public class AlarmStateMachineTests : IDisposable
         var errorPayload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(errorPayload);
 
-        // 确认不存在的 ID
         machine.Acknowledge("nonexistent_device");
 
         var alarms = machine.PendingAlarms;
@@ -395,17 +377,14 @@ public class AlarmStateMachineTests : IDisposable
         int eventCount = 0;
         machine.AlarmStatesChanged += () => eventCount++;
 
-        // 触发报警 -> 事件 +1
         var payload = CreatePayload("Sensor_01", DeviceStatus.Online, ErrorCode.ThresholdExceeded);
         machine.Evaluate(payload);
         Assert.Equal(1, eventCount);
 
-        // 确认 -> 事件 +1
         var alarm = machine.PendingAlarms[0];
         machine.Acknowledge(alarm.DeviceId);
         Assert.Equal(2, eventCount);
 
-        // 恢复 -> 事件 +1
         for (int i = 0; i < 3; i++)
         {
             machine.Evaluate(CreateNormalPayload("Sensor_01"));
@@ -516,8 +495,6 @@ public class AlarmStateMachineTests : IDisposable
 
     #endregion 报警恢复态落库回归测试
 
-    #region 工具方法
-
     private static TelemetryPayload CreateNormalPayload(string deviceId)
         => CreatePayload(deviceId, DeviceStatus.Online, ErrorCode.NoError, DataQuality.Good);
 
@@ -537,6 +514,4 @@ public class AlarmStateMachineTests : IDisposable
             QualityCode = quality
         };
     }
-
-    #endregion 工具方法
 }

@@ -3,38 +3,46 @@
 #include <ESP8266WebServer.h>
 #include "secrets.h"
 
+/*
+ * SmartEdgeHMI 边缘设备固件(ESP8266)
+ *
+ * 三件事: 仿真一路温湿度并维护设备状态、按 Modbus RTU 从站响应上位机轮询、提供一个只读网页面板。
+ * 上位机与本固件的接口契约集中在寄存器映射上, 见 processModbusFrame 的注释;
+ * 改动寄存器地址、缩放系数或状态码含义都必须同步 SmartEdgeHMI 侧的 Common/AppConstants.cs 与 Enums.cs。
+ */
+
 #define SLAVE_ID 1
 
-// 硬件板载 LED 配置
+// 板载 LED
 #define LED_PIN LED_BUILTIN
 #define LED_ON LOW
 #define LED_OFF HIGH
 
-// Wi-Fi 配置
-#define WIFI_CONNECT_TIMEOUT_MS 15000 // Wi-Fi 连接超时 (ms)
-#define LOOP_YIELD_MS 10              // 主循环每次让出 CPU 给 WiFi 协议栈的时间
+// Wi-Fi 连接参数
+#define WIFI_CONNECT_TIMEOUT_MS 15000 // 连接超时, 单位 ms
+#define LOOP_YIELD_MS 10              // 主循环每次让出 CPU 给协议栈的时间, 单位 ms
 
-ESP8266WebServer server(80); // 创建 80 端口的网页服务器
-bool serverStarted = false;  // 记录网页服务器是否已启动
+ESP8266WebServer server(80);
+bool serverStarted = false;
 
-// 物理环境仿真引擎状态
+// 仿真状态: 温湿度由 updateSensors 随机游走, 状态码随阈值判定
 float state_temperature = 25.0;
 float state_humidity = 45.0;
-uint16_t state_status = 1;    // 1: 正常, 4: 报警
-float state_threshold = 80.0; // 报警阈值
-uint16_t state_led = 0;       // 动作状态：0: 熄灭, 1: 点亮 (新增)
+uint16_t state_status = 1;    // 1 正常, 4 报警(对应 DeviceStatus.Fault)
+float state_threshold = 80.0; // 报警阈值, 单位 °C, 掉电不保留
+uint16_t state_led = 0;       // 0 熄灭, 1 点亮
 
-// 串口接收缓冲区
+// 串口接收缓冲: 单帧最长 64 字节, 足够覆盖 FC03/FC06 请求
 uint8_t rxBuffer[64];
 uint8_t rxIndex = 0;
 unsigned long lastCharTime = 0;
-const unsigned long MODBUS_T35_TIMEOUT = 5; // 5ms 断帧机制
+const unsigned long MODBUS_T35_TIMEOUT = 5; // 帧间隔阈值(ms), 超过即认为一帧结束
 
-// 定时任务
+// 采样节拍
 unsigned long lastSampleTime = 0;
-const unsigned long SAMPLE_INTERVAL = 1000; // 1秒/次
+const unsigned long SAMPLE_INTERVAL = 1000; // 每 1s 更新一次仿真值
 
-// 标准 Modbus CRC16 计算
+// Modbus CRC16(多项式 0xA001), 与上位机 ModbusFrameUtility.CalcCRC16 等价
 uint16_t calculateCRC(uint8_t *buffer, uint16_t length)
 {
   uint16_t crc = 0xFFFF;
@@ -77,8 +85,8 @@ void updateSensors()
   }
 }
 
-// 网页服务器 HMI 渲染逻辑
-// 纯 HTML/CSS/JS 仪表盘, 支持高频自动异步刷新 (AJAX)
+// 设备自带的网页面板: 纯前端 HTML/CSS/JS, 通过 /api/data 轮询刷新, 不参与上位机通信链路
+// PROGMEM 存放, 避免占用本就紧张的 RAM
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -140,7 +148,7 @@ void handleJsonApi()
   json += "\"humi\":" + String(state_humidity, 1) + ",";
   json += "\"stat\":" + String(state_status) + ",";
   json += "\"thrh\":" + String(state_threshold, 1) + ",";
-  json += "\"led\":" + String(state_led); // 新增 LED 状态输出
+  json += "\"led\":" + String(state_led);
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -150,7 +158,17 @@ void handleRootPage()
   server.send_P(200, "text/html", INDEX_HTML);
 }
 
-// Modbus RTU 核心解析逻辑
+/*
+ * Modbus RTU 从站处理: 请求已按 T3.5 断帧收集在 rxBuffer 中
+ *
+ * 保持寄存器映射(上位机按 FC03 读 0~3, 额外可读 4):
+ *   0  温度 × 10, int16 大端, 即 253 表示 25.3 °C
+ *   1  湿度 × 10, int16 大端
+ *   2  设备状态, 1 正常 / 4 报警
+ *   3  错误码, 报警时为 302(ThresholdExceeded), 否则 0
+ *   4  LED 状态, 0 熄灭 / 1 点亮
+ * FC06 写寄存器: 1 = 复位(写 1), 2 = 阈值(值/10 °C), 4 = 直接控制 LED
+ */
 void processModbusFrame()
 {
   if (rxIndex < 8)
@@ -169,7 +187,7 @@ void processModbusFrame()
     uint16_t startAddress = (rxBuffer[2] << 8) | rxBuffer[3];
     uint16_t registerCount = (rxBuffer[4] << 8) | rxBuffer[5];
 
-    // 边界检查：当前总共支持 5 个寄存器（地址 0 到 4）
+    // 只暴露 5 个寄存器(地址 0~4), 越界请求直接丢弃而不是返回异常码
     if ((startAddress + registerCount) > 5)
       return;
 
@@ -215,7 +233,7 @@ void processModbusFrame()
 
     bool executed = false;
 
-    if (targetAddress == 1 && writeValue == 1) // 动作：重置指令
+    if (targetAddress == 1 && writeValue == 1) // 写 1 到寄存器 1 即复位
     {
       state_temperature = 25.0;
       state_humidity = 45.0;
@@ -232,12 +250,12 @@ void processModbusFrame()
       state_led = 0; // 重置后维持静态熄灭
       executed = true;
     }
-    else if (targetAddress == 2) // 动作：修改报警阈值
+    else if (targetAddress == 2) // 写阈值: 值按 ×10 缩放
     {
       state_threshold = writeValue / 10.0;
       executed = true;
     }
-    else if (targetAddress == 4) // 动作：直接控制板载 LED 状态
+    else if (targetAddress == 4) // 写 LED: 非 0 即点亮
     {
       state_led = (writeValue > 0) ? 1 : 0;
       digitalWrite(LED_PIN, state_led ? LED_ON : LED_OFF);
@@ -246,19 +264,19 @@ void processModbusFrame()
 
     if (executed)
     {
-      Serial.write(rxBuffer, rxIndex); // 正常回显响应报文
+      // RTU 写操作的正常响应是原样回显请求帧
+      Serial.write(rxBuffer, rxIndex);
       Serial.flush();
     }
   }
 }
 
-// 主程序入口
+// 上电初始化: 串口、仿真种子、LED 与 Wi-Fi
 void setup()
 {
   Serial.begin(115200);
   randomSeed(analogRead(0));
 
-  // 初始化硬件板载 LED 状态
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LED_OFF);
 
@@ -266,7 +284,7 @@ void setup()
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  // 清除启动阶段串口残留
+  // 丢弃上电前残留的串口字节, 否则会与第一帧拼接
   while (Serial.available() > 0)
   {
     Serial.read();
@@ -278,7 +296,7 @@ void loop()
 {
   unsigned long currentMillis = millis();
 
-  // 异步等待 WiFi 连接成功后再启动服务器, 避免阻塞串口 Modbus 通信
+  // Wi-Fi 未就绪时不启动网页服务器: 服务器一旦 begin 会占用 socket 资源, 且串口轮询不能被拖慢
   if (WiFi.status() == WL_CONNECTED && !serverStarted)
   {
     server.on("/", handleRootPage);
@@ -287,13 +305,12 @@ void loop()
     serverStarted = true;
   }
 
-  // 处理网页客户端请求
   if (serverStarted)
   {
     server.handleClient();
   }
 
-  // 流式串口输入读取
+  // 串口读取不做阻塞等待: 每轮 loop 只读取当前可读字节
   while (Serial.available() > 0)
   {
     if (rxIndex < sizeof(rxBuffer))
@@ -303,23 +320,25 @@ void loop()
     }
     else
     {
+      // 超长帧直接丢弃: 正常请求不超过 8 字节, 缓冲满只可能是噪声
       rxIndex = 0;
     }
   }
 
-  // 依据 Modbus T3.5 规则断帧解析
+  // T3.5 断帧: 超过 5ms 无新字节即认为一帧结束。
+  // 115200 8N1 下 3.5 字符约 0.3ms, 这里取 5ms 是留足 USB 转串口抖动余量的实现值, 不是严格 T3.5
   if (rxIndex > 0 && (currentMillis - lastCharTime >= MODBUS_T35_TIMEOUT))
   {
     processModbusFrame();
     rxIndex = 0;
   }
 
-  // 仿真时钟触发
+  // 仿真节拍: 每秒推进一次温湿度随机游走
   if (currentMillis - lastSampleTime >= SAMPLE_INTERVAL)
   {
     lastSampleTime = currentMillis;
     updateSensors();
   }
 
-  delay(LOOP_YIELD_MS); // 让出 CPU 给 WiFi 协议栈处理后台任务
+  delay(LOOP_YIELD_MS);
 }

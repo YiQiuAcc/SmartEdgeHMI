@@ -6,16 +6,16 @@
 
 .DESCRIPTION
     先对备份目录做完整性校验（manifest 文件名白名单 + 重算每个文件的 SHA256 与 manifest.json 比对），校验通过之前
-    一个字节都不写；然后把目标发布目录里现有的 SmartEdgeHMI.db / SmartEdgeHMI.db-wal /
+    不写入任何字节；然后把目标发布目录里现有的 SmartEdgeHMI.db / SmartEdgeHMI.db-wal /
     SmartEdgeHMI.db-shm / settings.json（存在的话）整体移到
-    <AppDir>\data-before-restore-<yyyyMMdd-HHmmss>\ 保留历史（只移动、绝不删除），
+    <AppDir>\data-before-restore-<yyyyMMdd-HHmmss>\ 保留历史（只移动、不删除），
     再把备份文件拷回目标目录（保留修改时间），最后再做一次恢复后校验。
 
     只要检测到目标目录里有 SmartEdgeHMI 进程正在运行就拒绝执行（-DryRun 也不放行）；
     其他目录的 SmartEdgeHMI 实例不受影响。
 
 .OUTPUTS
-    退出码：0 成功（含 -DryRun 预演完成）；1 未预期异常；2 检测到 SmartEdgeHMI 进程在跑；
+    退出码：0 成功（含 -DryRun 预演完成）；1 未预期异常；2 检测到 SmartEdgeHMI 进程正在运行；
     3 目标 AppDir 不存在；4 预校验失败（manifest 缺失/损坏/哈希不一致），未写入任何数据；
     5 恢复后校验失败（原有数据仍在 data-before-restore-* 目录里，可手动移回）。
 
@@ -65,7 +65,7 @@ function Stop-Run {
 function Test-AppClosed {
     # 守卫：目标目录里正在运行的 SmartEdgeHMI 进程 → 拒绝（-DryRun 也一样），避免碰正在写入的数据。
     # 判定依据：进程可执行文件所在目录是否就是目标目录；路径读不出来时按最坏情况从严拒绝。
-    # 机器上其他目录的 SmartEdgeHMI 实例（例如正在跑的观察进程）不影响对别的目录的备份/恢复。
+    # 机器上其他目录的 SmartEdgeHMI 实例（例如正在运行的观察进程）不影响对别的目录的备份/恢复。
     param(
         [Parameter(Mandatory = $true)][string]$Action,
         [Parameter(Mandatory = $true)][string]$TargetDir
@@ -156,7 +156,7 @@ function Find-ExistingDataFiles {
 }
 
 function Invoke-RestoreMain {
-    # 1. 守卫（-DryRun 也执行）：目标目录里有 SmartEdgeHMI 进程在跑 → 退出码 2
+    # 守卫（-DryRun 也执行）：目标目录里有 SmartEdgeHMI 进程正在运行 → 退出码 2
     Test-AppClosed -Action '恢复' -TargetDir $AppDir
 
     $backupPath = [System.IO.Path]::GetFullPath($BackupDir)
@@ -169,7 +169,7 @@ function Invoke-RestoreMain {
         Stop-Run -Code 3 -Message "目标数据目录不存在：'$appPath'。请确认 -AppDir 路径后重试。"
     }
 
-    # 2. 先校验：校验通过之前一个字节都不写
+    # 先校验：校验通过之前不写入任何字节
     $entries = Read-BackupManifest -BackupPath $backupPath
 
     Write-Host '第 1 步：校验备份完整性（重算 SHA256 与 manifest 比对）…'
@@ -186,7 +186,7 @@ function Invoke-RestoreMain {
         Write-Host ("  校验通过：{0}（{1:N0} 字节）" -f $entry.name, $entry.bytes)
     }
 
-    # 3. 规划要让路的现有文件与 data-before-restore 目录（同一秒重跑时追加序号）
+    # 规划要让路的现有文件与 data-before-restore 目录（同一秒内重复执行时追加序号）
     $existing = Find-ExistingDataFiles -TargetDir $appPath -ManifestEntries $entries
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $beforeDir = Join-Path $appPath ('data-before-restore-{0}' -f $stamp)
@@ -196,7 +196,7 @@ function Invoke-RestoreMain {
         $seq++
     }
 
-    # 5. -DryRun：打印计划，不做任何写操作
+    # -DryRun 预演：打印计划，不做任何写操作
     if ($DryRun) {
         Write-Host ''
         Write-Host '—— DryRun 预演：以下为执行计划，不做任何写操作 ——'
@@ -235,7 +235,7 @@ function Invoke-RestoreMain {
         Write-Host ("  已恢复：{0}" -f $entry.name)
     }
 
-    # 4. 恢复后校验：不一致 → 退出码 5，原数据仍在 data-before-restore-* 里
+    # 恢复后校验：不一致 → 退出码 5，原数据仍在 data-before-restore-* 里
     Write-Host '第 4 步：恢复后校验（重算 SHA256 与 manifest 比对）…'
     foreach ($entry in $entries) {
         $restoredPath = Join-Path $appPath $entry.name

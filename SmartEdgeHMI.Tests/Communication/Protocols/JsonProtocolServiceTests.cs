@@ -7,9 +7,11 @@ using SmartEdgeHMI.Protocols.Parsers.Json;
 
 namespace SmartEdgeHMI.Tests.Communication.Protocols;
 
-/// <summary> 验证 JSON-Lines 协议解析核心逻辑</para> 测试策略:
-/// - 通过反射调用其私有静态 ProcessLine 方法来验证 JSON 解析核心逻辑
-/// - 验证内容包括:有效 JSON 解析、无效 JSON 处理、CRLF 处理 </para> </summary>
+/// <summary>JSON 行协议解析: 用反射直接驱动私有的 ProcessLine, 覆盖有效报文、非法报文与边界输入</summary>
+/// <remarks>
+/// 使用反射是因为 OnDataReceivedAsync 依赖 Pipe 与后台任务, 单测中难以稳定复现"一帧一行"的切分时序。
+/// FakeDeviceStateContainer 忽略全部写入, 因此这些用例只保证不抛异常, 断言不到解析后的字段值。
+/// </remarks>
 public class JsonProtocolServiceTests
 {
     private static readonly MethodInfo _processLineMethod = typeof(JsonProtocolParser)
@@ -17,7 +19,6 @@ public class JsonProtocolServiceTests
 
     private static readonly JsonProtocolParser _parser = new(new FakeDeviceStateContainer());
 
-    /// <summary>验证完整有效 JSON 可以正确反序列化为 TelemetryPayload</summary>
     [Fact]
     public void ProcessLine_ValidTelemetryJson_ShouldDeserializeSuccessfully()
     {
@@ -28,7 +29,6 @@ public class JsonProtocolServiceTests
         Assert.Null(ex);
     }
 
-    /// <summary>验证包含 CR 结尾的 JSON 行能被正确处理(ProcessLine 内部会裁剪末尾 \r)</summary>
     [Fact]
     public void ProcessLine_JsonWithTrailingCR_ShouldTrimAndDeserialize()
     {
@@ -42,7 +42,6 @@ public class JsonProtocolServiceTests
         Assert.Null(ex);
     }
 
-    /// <summary>验证无效 JSON 不会导致 ProcessLine 抛出异常(应被 catch 并记录日志)</summary>
     [Fact]
     public void ProcessLine_InvalidJson_ShouldNotThrow()
     {
@@ -52,7 +51,6 @@ public class JsonProtocolServiceTests
         Assert.Null(ex);
     }
 
-    /// <summary>验证空数据不会导致异常</summary>
     [Fact]
     public void ProcessLine_EmptyData_ShouldNotThrow()
     {
@@ -62,7 +60,6 @@ public class JsonProtocolServiceTests
         Assert.Null(ex);
     }
 
-    /// <summary>验证报警触发时包含 ErrorCode 的 JSON 解析</summary>
     [Fact]
     public void ProcessLine_ErrorCodeJson_ShouldDeserializeCorrectly()
     {
@@ -73,7 +70,6 @@ public class JsonProtocolServiceTests
         Assert.Null(ex);
     }
 
-    /// <summary>验证 Bad Quality 数据的 JSON 解析</summary>
     [Fact]
     public void ProcessLine_BadQualityJson_ShouldDeserializeCorrectly()
     {
@@ -84,7 +80,6 @@ public class JsonProtocolServiceTests
         Assert.Null(ex);
     }
 
-    /// <summary>验证字段名不匹配的 JSON (部分字段缺失) 仍能被安全处理</summary>
     [Fact]
     public void ProcessLine_PartialJson_ShouldNotThrow()
     {
@@ -94,7 +89,7 @@ public class JsonProtocolServiceTests
         Assert.Null(ex);
     }
 
-    /// <summary>验证包含 Command 指令的 JSON 下发格式的序列化和反序列化</summary>
+    /// <summary>下行命令的键名契约: cmd_id / deviceId / action / timestamp, 改名会让既有接收端读不到字段</summary>
     [Fact]
     public void CommandPayload_Serialization_ShouldProduceValidJson()
     {
@@ -111,7 +106,6 @@ public class JsonProtocolServiceTests
         Assert.Contains("deviceId", json);
         Assert.Contains("action", json);
 
-        // 验证反序列化
         var deserialized = System.Text.Json.JsonSerializer.Deserialize<CommandPayload>(json);
         Assert.NotNull(deserialized);
         Assert.Equal(command.DeviceId, deserialized.DeviceId);

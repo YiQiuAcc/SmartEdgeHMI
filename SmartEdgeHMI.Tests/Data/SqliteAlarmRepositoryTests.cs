@@ -213,7 +213,7 @@ public class SqliteAlarmRepositoryTests
         {
             var (repo, factory) = await CreateFixtureAsync(dbPath);
 
-            // 两台设备报警相距 7 分钟, 默认 5 分钟窗口彼此重叠 3 分钟: 串台缺陷在此区域必然暴露
+            // 两台设备报警相距 7 分钟, 默认 5 分钟窗口彼此重叠 3 分钟: 串扰缺陷在此区域必然暴露
             var alarmA = new AlarmRecord { DeviceId = DeviceA, Timestamp = _baseTime, AlarmCode = AlarmHigh };
             var alarmB = new AlarmRecord { DeviceId = DeviceB, Timestamp = _baseTime.AddMinutes(7), AlarmCode = AlarmLow };
             await SeedAsync(repo, [alarmA, alarmB]);
@@ -432,7 +432,6 @@ public class SqliteAlarmRepositoryTests
 
     #region 写入侧测试 (SaveAlarmRecordAsync / UpdateAlarmStatesAsync)
 
-    /// <summary>SaveAlarmRecordAsync 返回自增 ID 且 > 0, 连续保存两条 ID 严格递增</summary>
     [Fact]
     public async Task SaveAlarmRecordAsync_连续保存两条_返回自增ID且严格递增()
     {
@@ -508,7 +507,6 @@ public class SqliteAlarmRepositoryTests
         }
     }
 
-    /// <summary>UpdateAlarmStatesAsync 单条 ACK: 状态与确认时间落库, 重新查询读回一致, 且不清空 ClearedAt 之外的列</summary>
     [Fact]
     public async Task UpdateAlarmStatesAsync_单条确认_状态与确认时间读回一致()
     {
@@ -537,7 +535,7 @@ public class SqliteAlarmRepositoryTests
         }
     }
 
-    /// <summary>UpdateAlarmStatesAsync 批量三条(UNACK/ACK/NORMAL): 三条全部落到各自状态, 互不串行、互不清空;
+    /// <summary>UpdateAlarmStatesAsync 批量三条(UNACK/ACK/NORMAL): 三条全部落到各自状态, 互不串扰、互不清空;
     /// 更新对象只带 Id 与三个状态列, 顺带锁死 UPDATE 语句只改 State/AcknowledgedAt/ClearedAt 的契约</summary>
     [Fact]
     public async Task UpdateAlarmStatesAsync_批量三条_各自落到对应状态互不串扰()
@@ -573,7 +571,7 @@ public class SqliteAlarmRepositoryTests
             var ack = Assert.Single(history, r => r.Id == idAck);
             Assert.Equal(AlarmState.ACK, ack.State);
             Assert.Equal(acknowledgedAt, ack.AcknowledgedAt);
-            Assert.Null(ack.ClearedAt);          // 确认操作不得顺手清空/填入恢复时间
+            Assert.Null(ack.ClearedAt);          // 确认操作不得清空或填入恢复时间
 
             var normal = Assert.Single(history, r => r.Id == idNormal);
             Assert.Equal(AlarmState.NORMAL, normal.State);
@@ -617,7 +615,6 @@ public class SqliteAlarmRepositoryTests
         }
     }
 
-    /// <summary>更新不存在的记录(Id 不在库里的对象)不抛异常, 且库内已有行的状态不受影响</summary>
     [Fact]
     public async Task UpdateAlarmStatesAsync_更新不存在的记录_不抛异常且不影响其它行()
     {
@@ -659,14 +656,14 @@ public class SqliteAlarmRepositoryTests
 
     #endregion 写入侧测试 (SaveAlarmRecordAsync / UpdateAlarmStatesAsync)
 
-    /// <summary>按临时文件库构造仓储: in-memory 配置 + 建库, QueryLimit 显式设为 10。</summary>
+    // 临时文件库 + in-memory 配置, QueryLimit 固定为 10
     private static async Task<SqliteAlarmRepository> CreateRepositoryAsync(string dbPath)
     {
         var (repo, _) = await CreateFixtureAsync(dbPath);
         return repo;
     }
 
-    /// <summary>构造仓储并返回工厂: 工厂供测试直接开连接批量写入遥测种子数据。</summary>
+    // 工厂一并返回, 供测试直接建立连接写入遥测种子数据
     private static async Task<(SqliteAlarmRepository Repo, SqliteConnectionFactory Factory)> CreateFixtureAsync(string dbPath)
     {
         var config = new ConfigurationBuilder()
@@ -683,7 +680,7 @@ public class SqliteAlarmRepositoryTests
         return (new SqliteAlarmRepository(factory, config), factory);
     }
 
-    /// <summary>构造 30 条种子数据: 时间戳从固定基准时间起分散在 3 天内, 2 个设备 × 2 个报警编码。</summary>
+    // 30 条种子: 时间戳分布在 3 天内, 2 个设备 × 2 个报警编码, 便于交叉验证过滤条件
     private static List<AlarmRecord> BuildSeedRecords()
     {
         var records = new List<AlarmRecord>();
@@ -708,7 +705,7 @@ public class SqliteAlarmRepositoryTests
             await repo.SaveAlarmRecordAsync(record);
     }
 
-    /// <summary>构造遥测行: 值字段仅作占位, 测试只关心设备与时间戳。</summary>
+    // 值字段仅作占位, 测试只关心设备与时间戳
     private static SensorReadingRecord BuildTelemetry(string deviceId, DateTime timestamp) => new()
     {
         DeviceId = deviceId,
@@ -720,7 +717,7 @@ public class SqliteAlarmRepositoryTests
         QualityCode = DataQuality.Good
     };
 
-    /// <summary>绕过 SqliteTelemetryRepository 的 Channel 异步刷盘, 直接批量插入保证测试确定性。</summary>
+    // 绕过 Channel 异步刷盘直接写入数据库, 单事务保证种子数据在断言前全部可见
     private static async Task SeedTelemetryAsync(SqliteConnectionFactory factory, IReadOnlyList<SensorReadingRecord> readings)
     {
         await using var connection = await factory.CreateConnectionAsync();
@@ -734,7 +731,7 @@ public class SqliteAlarmRepositoryTests
         await transaction.CommitAsync();
     }
 
-    /// <summary>断言上下文遥测: 只含本设备、全部落在 [start, end] 内、行数与内容同种子数据推算结果一致且升序。</summary>
+    // 断言上下文遥测只含本设备、全部落在 [start, end] 内, 且与种子数据的推算结果一致(升序)
     private static void AssertContextMatches(
         AlarmWithTelemetry actual, List<SensorReadingRecord> telemetry, string deviceId,
         DateTime start, DateTime end)
@@ -750,7 +747,7 @@ public class SqliteAlarmRepositoryTests
             actual.SurroundingTelemetry.Select(r => r.Timestamp));
     }
 
-    /// <summary>计算种子数据中满足条件的记录按时间倒序、截断 limit 后应返回的时间戳序列。</summary>
+    // 种子数据中满足条件的记录按时间倒序、截断 limit 后的时间戳序列
     private static IEnumerable<DateTime> ExpectedTimestamps(
         List<AlarmRecord> seed, Func<AlarmRecord, bool> predicate, int limit)
         => seed.Where(predicate)

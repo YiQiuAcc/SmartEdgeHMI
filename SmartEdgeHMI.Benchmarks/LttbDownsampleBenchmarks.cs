@@ -24,7 +24,7 @@ public class LttbDownsampleBenchmarks
     public List<SensorReadingRecord> DownsampleTo1000() => LttbDownsampler.Downsample(_data, 1000);
 
     /// <summary>
-    /// 生成确定性测试数据: 时间戳每点 +100ms 递增, 温湿度为固定种子的伪随机游走 (15-35°C / 20-80%)。
+    /// 生成确定性测试数据, 时间戳每点 +100ms 递增, 温湿度为固定种子的伪随机游走 (15-35°C / 20-80%)。
     /// 仅在 GlobalSetup 中调用, 不计入被测耗时。
     /// </summary>
     internal static SensorReadingRecord[] GenerateData(int count)

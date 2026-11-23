@@ -4,6 +4,7 @@ namespace SmartEdgeHMI.Tests.ViewModels;
 
 public class LogConsoleViewModelTests
 {
+    // 下限锁在 1
     [Theory]
     [InlineData(500, 50)]
     [InlineData(50, 5)]

@@ -1,14 +1,14 @@
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Serilog;
-using SmartEdgeHMI.Data.Repositories;
 
 namespace SmartEdgeHMI.Data.Retention;
 
-/// <summary>
-/// 数据保留策略实现: 遥测/报警分别按配置天数计算截止时间, 以固定批大小循环删除,
-/// 单轮批数有安全上限防止一次清理长时间占库; 配置 &lt;= 0 视为关闭对应表的清理。
-/// </summary>
+/// <summary>数据保留策略: 遥测与报警分别按配置天数计算截止时间, 固定批大小循环删除</summary>
+/// <remarks>
+/// 单轮批数设安全上限, 防止海量积压时一次清理长时间占用连接; 配置 &lt;= 0 表示关闭对应表的清理。
+/// 清理失败只记日志, 留待下一周期重试, 不影响主程序。
+/// </remarks>
 public sealed class DataRetentionService(SqliteConnectionFactory factory, IConfiguration config)
     : IDataRetentionService, IAsyncDisposable
 {
@@ -21,7 +21,7 @@ public sealed class DataRetentionService(SqliteConnectionFactory factory, IConfi
     private Task? _loopTask;
     private bool _disposed;
 
-    // 防御式解析: 配置缺失/非法时回退默认值(与 SqliteAlarmRepository._queryLimit 同风格)
+    // 配置缺失/非法时回退默认值
     private readonly int _retentionDays = int.TryParse(config["DatabaseSettings:RetentionDays"], out int days) ? days : 30;
     private readonly int _alarmRetentionDays = int.TryParse(config["DatabaseSettings:AlarmRetentionDays"], out int alarmDays) ? alarmDays : 0;
     private readonly int _checkIntervalHours = int.TryParse(config["DatabaseSettings:RetentionCheckIntervalHours"], out int hours) ? hours : 24;
@@ -36,7 +36,7 @@ public sealed class DataRetentionService(SqliteConnectionFactory factory, IConfi
         long alarmDeleted = 0;
         bool batchLimitReached = false;
 
-        // 两表相互隔离: 一张表清理失败不影响另一张表, 失败留待下一轮周期重试
+        // 两表相互隔离, 一张表清理失败不影响另一张表, 失败留待下一轮周期重试
         if (_retentionDays > 0)
         {
             try
@@ -59,7 +59,7 @@ public sealed class DataRetentionService(SqliteConnectionFactory factory, IConfi
             catch (Exception ex) { Log.Error(ex, "报警保留清理失败(保留 {AlarmRetentionDays} 天)", _alarmRetentionDays); }
         }
 
-        // 删除 0 行时保持安静, 避免每轮周期产生日志噪音
+        // 删除 0 行时保持安静, 避免产生日志噪音
         if (telemetryDeleted > 0 || alarmDeleted > 0)
         {
             Log.Information(
@@ -80,7 +80,7 @@ public sealed class DataRetentionService(SqliteConnectionFactory factory, IConfi
             _retentionDays, _alarmRetentionDays, _checkIntervalHours);
     }
 
-    /// <summary>后台清理循环: 立即清一次, 之后按配置周期重复; 异常只记日志, 不让清理失败拖垮主程序。</summary>
+    /// <summary>后台清理循环: 立即清一次, 之后按配置周期重复, 异常只记日志</summary>
     private async Task RunLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -100,10 +100,8 @@ public sealed class DataRetentionService(SqliteConnectionFactory factory, IConfi
         }
     }
 
-    /// <summary>
-    /// 单表分批删除: 每批 BatchSize 行, 影响行数为 0 时提前结束, 达到批数安全上限时停止并上报,
-    /// 防止海量积压时单轮清理长时间占用连接; 批间短暂让出执行权。
-    /// </summary>
+    /// <summary>单表分批删除: 每批 BatchSize 行, 影响行数为 0 时提前结束, 达到批数上限时停止并在结果中标记</summary>
+    /// <remarks>批间 Delay 让出执行权, 降低与采集线程批量插入争抢写锁的持续压力</remarks>
     private async Task<(long Deleted, bool LimitReached)> PurgeTableAsync(string tableName, DateTime cutoff, CancellationToken ct)
     {
         long totalDeleted = 0;

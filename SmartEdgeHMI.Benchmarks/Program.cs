@@ -1,11 +1,12 @@
 using BenchmarkDotNet.Running;
 using SmartEdgeHMI.Benchmarks;
 
+/// <summary>基准入口: 默认运行 BenchmarkDotNet, 带 <c>--verify</c> 时只做降采样条数自检</summary>
 internal static class Program
 {
     public static void Main(string[] args)
     {
-        // 辅助模式: 校验 LTTB 降采样在不同输入规模下都精确返回 1000 条 (--verify)
+        // 自检模式供 CI 使用: 不运行基准, 只验证 1 万 / 10 万 / 100 万规模下都精确返回 1000 条且保留首尾点
         if (args.Contains("--verify"))
         {
             VerifyDownsampledRowCount();

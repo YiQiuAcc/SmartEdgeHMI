@@ -1,20 +1,24 @@
 /**
- * SmartEdgeHMI Virtual Device Simulator (双模下位机模拟器)
- * * 启动方式:
- * pnpm run sim:json    (JSON主动上报模式, 1秒/次)
- * pnpm run sim:modbus  (Modbus RTU轮询模式)
- * pnpm run sim:fault   (JSON模式 + 定时故障窗口, 报警链路E2E用)
+ * SmartEdgeHMI 虚拟下位机: 在同一份仿真状态上同时实现 JSON 行协议与 Modbus RTU 从站
+ *
+ * 启动方式:
+ *   pnpm run sim:json    JSON 主动上报模式, 1 秒一帧
+ *   pnpm run sim:modbus  Modbus RTU 从站模式, 由上位机轮询驱动
+ *   pnpm run sim:fault   JSON 模式叠加定时故障窗口, 用于报警链路端到端验证
+ *
+ * 与上位机的契约: 寄存器映射与错误码含义必须和 Firmware/src/main.cpp 保持一致,
+ * 改动任一侧都要同步 SmartEdgeHMI 的 Common/AppConstants.cs 与 Enums.cs
  */
 
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
 
-// 物理环境仿真引擎 (Shared State)
+// 仿真状态: 温湿度随机游走, status 随阈值判定
 const state = {
   temperature: 25.0,
   humidity: 45.0,
-  status: 1, // 1: 正常, 2: 报警
-  threshold: 80.0, // 报警阈值
+  status: 1, // 1 正常, 4 故障(DeviceStatus.Fault)
+  threshold: 80.0, // 报警阈值, 单位 °C, 可通过 FC06 写入
 };
 
 // 模拟温湿度随时间自然波动 (Random Walk)
@@ -34,8 +38,8 @@ setInterval(() => {
   }
 }, 1000);
 
-// ===== 故障注入 (P0-03): 按时间窗口确定地进入/退出故障态 =====
-// 计时基准: 进程启动时刻, 用 Date.now() - startTime 判定, 不依赖 setInterval 计数
+// 故障注入: 按时间窗口确定地进入/退出故障态, 用于在不改代码的前提下复现报警链路
+// 计时基准是进程启动时刻, 用 Date.now() - startTime 判定, 不依赖 setInterval 的累计次数
 const startTime = Date.now();
 const faultConfig = { enabled: false, startMs: 0, durationMs: 0, code: 302 };
 let faultActive = false; // 故障期变量: JSON 与 Modbus 两条路径共用
@@ -123,10 +127,10 @@ if (faultWindowSec) {
   faultConfig.code = faultCode;
 }
 
-console.log(`\n🚀 启动虚拟设备模拟器...`);
-console.log(`🔌 端口: ${portName} @ ${baudRate} bps`);
+console.log(`\n启动虚拟设备模拟器...`);
+console.log(`端口: ${portName} @ ${baudRate} bps`);
 console.log(
-  `📡 模式: ${mode === "modbus" ? "Modbus RTU (被动轮询)" : "JSON-Lines (主动上报)"}\n`,
+  `模式: ${mode === "modbus" ? "Modbus RTU (被动轮询)" : "JSON-Lines (主动上报)"}\n`,
 );
 
 if (faultConfig.enabled) {
@@ -167,7 +171,7 @@ function setupJsonProtocol(port) {
       status: state.status,
     };
 
-    // 阈值监控：温度超过阈值时附加错误码
+    // 阈值判定: 状态已由采样定时器置为 4 时补上错误码, 供上位机进入报警分支
     if (state.status === 4) {
       payload.err_code = 302; // ErrorCode.ThresholdExceeded
     }
@@ -206,29 +210,26 @@ function setupJsonProtocol(port) {
   });
 }
 
-//  Modbus RTU 协议实现 (一问一答)
-
+// Modbus RTU 从站: 一问一答, 只处理 8 字节固定长度的 FC03 / FC06 请求
 function setupModbusProtocol(port) {
   let rxBuffer = Buffer.alloc(0);
 
   port.on("data", (chunk) => {
-    // 将新数据追加到滑动窗口
     rxBuffer = Buffer.concat([rxBuffer, chunk]);
 
-    // Modbus RTU 请求帧极小值为 8 字节 (03/06 等常用功能码)
+    // FC03 与 FC06 请求帧都恰好 8 字节, 不足时等下一批数据
     while (rxBuffer.length >= 8) {
       const frame = rxBuffer.subarray(0, 8);
 
-      // 验证 CRC (与 C# 严密对应)
+      // CRC 覆盖前 6 字节, 帧尾按小端存放
       const calculatedCrc = calcCrc16(frame.subarray(0, 6));
       const receivedCrc = frame.readUInt16LE(6);
 
       if (calculatedCrc === receivedCrc) {
         handleModbusRequest(port, frame);
-        // 消费这一帧
         rxBuffer = rxBuffer.subarray(8);
       } else {
-        // CRC失败，丢弃脏字节，滑动1位
+        // 校验失败: 只丢弃 1 字节, 让真正的帧头有机会重新对齐
         rxBuffer = rxBuffer.subarray(1);
       }
     }
@@ -236,16 +237,16 @@ function setupModbusProtocol(port) {
 }
 
 function handleModbusRequest(port, frame) {
-  const faultNow = refreshFaultState(); // 故障注入: 与 JSON 路径共用同一判断
+  const faultNow = refreshFaultState();
   const slaveId = frame[0];
   const functionCode = frame[1];
   const startAddr = frame.readUInt16BE(2);
-  const valueOrCount = frame.readUInt16BE(4); // 对于 03 是 Count，对于 06 是 Value
+  // 同一位置在 FC03 是寄存器数量, 在 FC06 是写入值
+  const valueOrCount = frame.readUInt16BE(4);
 
-  if (slaveId !== 0x01) return; // 假设本机站号为 1
+  if (slaveId !== 0x01) return;
 
   if (functionCode === 0x03) {
-    // 收到指令：03 读保持寄存器
     const byteCount = valueOrCount * 2;
     const response = Buffer.alloc(3 + byteCount + 2);
 
@@ -257,15 +258,15 @@ function handleModbusRequest(port, frame) {
     for (let i = 0; i < valueOrCount; i++) {
       const addr = startAddr + i;
       let val = 0;
-      // 地址映射表 (上位机解析 C# 必须对齐)
+      // 寄存器映射: 0 温度×10, 1 湿度×10, 2 设备状态, 3 错误码; 未定义地址返回 0
       if (addr === 0)
-        val = Math.round(state.temperature * 10); // 寄存器0: 温度
+        val = Math.round(state.temperature * 10);
       else if (addr === 1)
-        val = Math.round(state.humidity * 10); // 寄存器1: 湿度
+        val = Math.round(state.humidity * 10);
       else if (addr === 2)
-        val = faultNow ? 4 : state.status; // 寄存器2: 设备状态 (故障注入期强制 Fault)
+        val = faultNow ? 4 : state.status;
       else if (addr === 3)
-        val = faultNow ? faultConfig.code : state.status === 4 ? 302 : 0; // 寄存器3: 错误码 (ErrorCode)
+        val = faultNow ? faultConfig.code : state.status === 4 ? 302 : 0;
 
       response.writeUInt16BE(val, offset);
       offset += 2;
@@ -279,7 +280,6 @@ function handleModbusRequest(port, frame) {
       `[Modbus TX] 读寄存器响应 -> ${response.toString("hex").toUpperCase()}`,
     );
   } else if (functionCode === 0x06) {
-    // 收到指令：06 写单个寄存器
     const addrName =
       startAddr === 2
         ? "报警阈值"
@@ -290,12 +290,12 @@ function handleModbusRequest(port, frame) {
       `[Modbus RX] 收到写寄存器指令 (${addrName}, Val: ${valueOrCount})`,
     );
 
-    // 写入寄存器 2: 更新报警阈值 (定点数×10传输)
+    // 寄存器 2: 阈值, 两端约定按 ×10 定点传输
     if (startAddr === 2) {
       state.threshold = valueOrCount / 10.0;
       console.log(`[EXEC] 更新阈值 -> ${state.threshold}°C`);
     }
-    // 写入寄存器 1: 复位设备
+    // 寄存器 1 写 1: 复位
     else if (startAddr === 1 && valueOrCount === 1) {
       state.temperature = 25.0;
       state.humidity = 45.0;
@@ -303,12 +303,12 @@ function handleModbusRequest(port, frame) {
       console.log("[EXEC] 设备复位 -> 恢复初始状态");
     }
 
-    // 原样返回作为 ACK 响应
+    // FC06 的正常响应就是原样回显请求帧
     port.write(frame);
   }
 }
 
-// 标准 Modbus RTU CRC16 计算函数 (与上位机 C# 端一致)
+// CRC16(Modbus): 初值 0xFFFF, 反射多项式 0xA001; 与上位机 ModbusFrameUtility.CalcCRC16 必须逐位一致
 function calcCrc16(buffer) {
   let crc = 0xffff;
   for (let i = 0; i < buffer.length; i++) {

@@ -32,6 +32,8 @@ public class SettingsService : ISettingsService
         LoadSettings();
     }
 
+    /// <summary>当前设置实例, 调用方直接在该实例上改字段, 不会自动持久化</summary>
+    /// <remarks>读取不加锁, UI 线程改写与轮询/串口线程读取并发时可能读到正在更新的字段, 不提供一致快照</remarks>
     public AppSettings Current => _currentSettings;
 
     /// <summary>从本地 JSON 文件加载设置；文件不存在时从 appsettings.json 回退</summary>
@@ -42,8 +44,8 @@ public class SettingsService : ISettingsService
             Log.Information("设置文件不存在, 从 appsettings.json 加载默认值: {Path}", _filePath);
             ApplyDefaultsFromConfiguration();
 
-            // 首启落盘 fail-soft: 目录建不出来或写盘失败时只记 Warning, 继续使用内存默认值, 不中断启动;
-            // 本次运行中在界面上修改设置时的保存仍会失败, 由调用方现有 catch 记日志。
+            // 首启 fail-soft: 目录建不出来或写文件失败只记 Warning, 继续用内存默认值启动;
+            // 不中断启动的代价是本次运行中界面上改的设置同样存不下去, 由调用方的 catch 记日志
             try
             {
                 Directory.CreateDirectory(_settingsDirectory);
@@ -121,7 +123,9 @@ public class SettingsService : ISettingsService
             _currentSettings.Logging.MaxLogEntries = maxLog;
     }
 
-    /// <summary>异步保存当前设置到本地 JSON 文件(原子写入: 先写 .tmp 再 rename)</summary>
+    /// <summary>异步保存当前设置到本地 JSON 文件</summary>
+    /// <remarks>先写同目录 .tmp 再用 <see cref="File.Move(string, string, bool)"/> 覆盖, 避免写入中断留下半截文件</remarks>
+    /// <exception cref="OperationCanceledException"><paramref name="token"/> 在等待锁或写盘期间被取消</exception>
     public async Task SaveAsync(CancellationToken token)
     {
         token.ThrowIfCancellationRequested();

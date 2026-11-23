@@ -8,7 +8,8 @@ using SmartEdgeHMI.Models.Dtos;
 
 namespace SmartEdgeHMI.Data.Repositories;
 
-/// <summary>报警记录持久化仓储: 查询、写入、状态更新、上下文关联遥测分析。</summary>
+/// <summary>报警记录持久化仓储: 历史查询、写入、状态批量更新与遥测上下文关联</summary>
+/// <remarks>所有查询/写入路径捕获异常后只记日志并返回空结果或 0, 上层不会收到 <see cref="Microsoft.Data.Sqlite.SqliteException"/></remarks>
 public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConfiguration config) : IAlarmRepository
 {
     private readonly int _queryLimit = int.TryParse(config["DatabaseSettings:QueryLimit"], out int limit) ? limit : 10;
@@ -77,8 +78,9 @@ public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConf
         {
             await using var connection = await factory.CreateConnectionAsync();
 
-            // 两段式查询: 先按过滤条件取报警列表(与 GetAlarmHistoryAsync 共用 SQL), 再逐条按时间窗口查遥测,
-            // 避免将报警表和遥测表整表载入内存
+            // 两段式查询: 先按过滤条件取报警列表(与 GetAlarmHistoryAsync 共用 SQL), 再逐条按时间窗口查遥测。
+            // 每行一次查询(N+1), 但报警数已被 QueryLimit 限制(默认 10), 比整表 JOIN 进内存更可控
+            // TODO: 可优化为批量查询
             List<AlarmRecord> alarms = await QueryAlarmsAsync(connection, filter, _queryLimit);
 
             var results = new List<AlarmWithTelemetry>(alarms.Count);
@@ -113,11 +115,11 @@ public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConf
         }
     }
 
-    /// <summary>报警列表共用查询: 过滤条件与 Limit 下推到 SQL, 供历史查询与上下文查询复用, 避免两处 SQL 漂移。</summary>
+    /// <summary>报警列表共用查询: 过滤条件与 Limit 全部下推 SQL, 供历史查询与上下文查询复用</summary>
     private static async Task<List<AlarmRecord>> QueryAlarmsAsync(
         SqliteConnection connection, AlarmHistoryFilter? filter, int queryLimit)
     {
-        // 参数化占位符保证 null 条件短路为"不过滤"
+        // 参数化占位符保证 null 条件短路为不过滤
         return [.. await connection.QueryAsync<AlarmRecord>("""
             SELECT * FROM AlarmHistory
             WHERE (@From IS NULL OR Timestamp >= @From)
@@ -128,10 +130,10 @@ public sealed class SqliteAlarmRepository(SqliteConnectionFactory factory, IConf
             LIMIT @Limit
             """, new
         {
-            From = filter?.From,
-            To = filter?.To,
-            DeviceId = filter?.DeviceId,
-            AlarmCode = filter?.AlarmCode,
+            filter?.From,
+            filter?.To,
+            filter?.DeviceId,
+            filter?.AlarmCode,
             Limit = filter?.Limit ?? queryLimit
         })];
     }

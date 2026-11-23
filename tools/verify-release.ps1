@@ -189,8 +189,7 @@ function Invoke-VerifyMain {
     # ④ 非当前哈希必须标注作废（只判定包哈希引用行）
     Write-Host ''
     Write-Host '== 第 4 步：非当前哈希必须标注作废 =='
-    # 第④项只覆盖「包哈希引用行」：同一行还写了发布包文件名的行。
-    # 证据文件（如 soak.csv）等其他哈希引用行不同时含包文件名，有意不参与判定，避免把证据链哈希误判为过期。
+    # 第④项只覆盖包哈希引用行（同一行还写了发布包文件名）；证据文件哈希行不参与判定，避免把证据链哈希误判为过期
     $violations = @()
     foreach ($doc in $docScans) {
         foreach ($hit in $doc.Hits) {

@@ -11,6 +11,12 @@ using SmartEdgeHMI.Protocols.Transports.Serial;
 
 namespace SmartEdgeHMI.ViewModels;
 
+/// <summary>连接页视图模型: 串口选择、协议切换与连接状态展示</summary>
+/// <remarks>
+/// 同时是 <see cref="IProtocolConfig"/> 的唯一实现, 因此协议解析器直接观察本类的属性变更事件。
+/// <c>_connectedPorts</c> 只在 UI 线程写(经 <see cref="ViewModelBase.DispatchToUI"/>),
+/// 串口层的事件则在读循环线程上发出, 两者之间靠 Dispatcher 交接。
+/// </remarks>
 public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
 {
     private readonly ISerialPortService _serialPortService;
@@ -132,7 +138,7 @@ public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
         }
     }
 
-    /// <summary>把持久化的协议字符串解析回枚举; 空串/缺键/非法值(含数字串)一律回退 JSON(现状默认), 不抛异常</summary>
+    /// <summary>把持久化的协议字符串解析回枚举; 空串/缺键/非法值(含数字串)一律回退 JSON, 不抛异常</summary>
     internal static CommunicationProtocol ParseProtocol(string? stored)
     {
         if (string.IsNullOrWhiteSpace(stored)) return CommunicationProtocol.JSON;
@@ -176,7 +182,7 @@ public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
         _ = SaveSettingsAsync();
     }
 
-    /// <summary>自动连接判定: 上次使用的端口仍在系统枚举里且尚未连接时才允许, 纯静态便于单测</summary>
+    /// <summary>自动连接判定, 上次使用的端口仍在系统枚举里且尚未连接时才允许</summary>
     internal static bool ShouldAutoConnect(string? savedPort, IReadOnlyCollection<string> availablePorts, bool alreadyConnected)
         => !string.IsNullOrEmpty(savedPort)
            && availablePorts.Contains(savedPort)
@@ -206,7 +212,9 @@ public partial class ConnectionViewModel : ViewModelBase, IProtocolConfig
         }
     }
 
-    // 后台线程触发, 不阻塞 UI 启动; 此时 _connectedPorts 尚无任何写入方(状态事件未发生), 判定读取无竞态
+    // 后台线程执行, 不阻塞 UI 启动; 但 _connectedPorts 是普通 HashSet, 与 UI 线程的 SetPortState 之间没有同步,
+    // 这里的 Contains 可能读到中间状态
+    // NOTE: 若后续在此处读取更多共享状态, 应把判定整体搬到 UI 线程
     private void TryAutoConnectOnStartup() => _ = Task.Run(TryAutoConnectAsync);
 
     private async Task SaveSettingsAsync()

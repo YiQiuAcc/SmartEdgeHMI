@@ -3,7 +3,7 @@
 .SYNOPSIS
     对 soak.ps1 采集的观察 CSV 输出一份带判定（通过/不通过/需人工判断）的 Markdown 证据表（TASK-124，P1-01）。
 .DESCRIPTION
-    只读输入文件，绝不写回 -Csv。判定阈值写死在本脚本 $Thresholds（默认口径），事后不许改口径，改阈值必须走代码评审。
+    只读输入文件，不写回 -Csv。判定阈值固定在本脚本 $Thresholds（默认口径），不得在事后修改判定口径，修改阈值必须经过代码评审。
     行数低于期望采样数（Hours*3600/IntervalSec）的 80% 时，总判定为 INCOMPLETE（中途检查，不是结论）。
     退出码：0 = 正常出报告（含 INCOMPLETE）；1 = -Strict 且存在「不通过」判定；2 = 输入/参数错误。
 .EXAMPLE
@@ -26,9 +26,10 @@ param(
 )
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+# 解析与格式化统一使用 InvariantCulture，避免区域设置改变小数点与千分位的解释
 $Inv = [System.Globalization.CultureInfo]::InvariantCulture
 
-# ---- 判定阈值：默认口径写死在此，事后不许改 ----
+# 判定阈值：默认值即判定口径，改动必须经过代码评审
 $Thresholds = [pscustomobject]@{
     MaxMissing          = 3      # 采样完整性：缺失 ≤ 3 行
     GapFactor           = 1.35   # 采样完整性：最大间隔 ≤ IntervalSec × 1.35
@@ -98,7 +99,7 @@ function Get-ValidList($list, [string]$field) {
     @($list | Where-Object { $null -ne $_.$field })
 }
 
-# 针对已按字段过滤好的列表：首值/末值/最大（含时间）/最小（含时间）
+# 输入列表须已按字段过滤（不含 null）：返回首值/末值/最大（含时间）/最小（含时间）
 function Get-SeriesStats($list, [string]$field) {
     $out = @{ First = $null; Last = $null; Max = $null; MaxTs = $null; Min = $null; MinTs = $null; Count = @($list).Count }
     if ($out.Count -gt 0) {
@@ -146,7 +147,7 @@ function Get-SlopePerHour($list, [string]$field) {
     return ($sxy / $sxx) * 3600.0
 }
 
-# ---- 读入（只读） ----
+# 读入（只读）
 $raw = Import-Csv -LiteralPath $Csv
 if (@($raw).Count -eq 0) { Fail2 "CSV 没有数据行：$Csv" }
 $firstRow = @($raw)[0]
@@ -182,7 +183,7 @@ foreach ($r in $raw) {
     })
 }
 
-# ---- 采样概况 ----
+# 采样概况
 $n = $samples.Count
 $expectedSamples = [int][math]::Round($Hours * 3600.0 / $IntervalSec)
 $missingCount = [math]::Max(0, $expectedSamples - $n)
@@ -206,14 +207,14 @@ for ($i = 1; $i -lt $tsOk.Count; $i++) {
     if ($dt -gt ($IntervalSec * $Thresholds.GapFactor)) { $gapOverCount++ }
 }
 
-# ---- 存活 ----
+# 存活
 $falseSamples = @($samples | Where-Object { $_.AliveFalse })
 $unknownAliveCount = @($samples | Where-Object { $_.AliveUnknown }).Count
 $pidGroups = @($samples | Where-Object { $_.Pid.Length -gt 0 } | Group-Object -Property Pid)
 $pidCount = $pidGroups.Count
 $emptyPidCount = @($samples | Where-Object { $_.Pid.Length -eq 0 }).Count
 
-# ---- 内存 ----
+# 内存
 $wsList = @(Get-ValidList $tsOk 'Ws')
 $ws = Get-SeriesStats $wsList 'Ws'
 $wsSlope = Get-SlopePerHour $tsOk 'Ws'
@@ -230,7 +231,7 @@ for ($i = 1; $i -lt $wsList.Count; $i++) {
     }
 }
 
-# ---- 句柄 / 线程 ----
+# 句柄 / 线程
 $hdList = @(Get-ValidList $tsOk 'Handles')
 $hd = Get-SeriesStats $hdList 'Handles'
 $hdSlope = Get-SlopePerHour $tsOk 'Handles'
@@ -240,14 +241,14 @@ $th = Get-SeriesStats $thList 'Threads'
 $thSlope = Get-SlopePerHour $tsOk 'Threads'
 $thInc = if ($null -ne $th.First -and $null -ne $th.Last) { ([double]$th.Last - [double]$th.First) } else { $null }
 
-# ---- CPU ----
+# CPU
 $cpuList = @(Get-ValidList $tsOk 'Cpu')
 $cpuFirst = if ($cpuList.Count -ge 1) { [double]$cpuList[0].Cpu } else { $null }
 $cpuLast  = if ($cpuList.Count -ge 1) { [double]$cpuList[-1].Cpu } else { $null }
 $cpuDelta = if ($cpuList.Count -ge 2) { $cpuLast - $cpuFirst } else { $null }
 $cpuPct = if ($null -ne $cpuDelta -and $spanSec -gt 0) { $cpuDelta / $spanSec * 100.0 } else { $null }
 
-# ---- 数据库 ----
+# 数据库
 $dbList = @(Get-ValidList $tsOk 'Db')
 $dbFirst = if ($dbList.Count -ge 1) { [double]$dbList[0].Db } else { $null }
 $dbLast  = if ($dbList.Count -ge 1) { [double]$dbList[-1].Db } else { $null }
@@ -282,7 +283,7 @@ $walRangePct = if ($null -ne $walTailRange -and $null -ne $walMax -and $walMax -
 $journalSummary = @($samples | Where-Object { $_.Journal.Length -gt 0 } | Group-Object -Property Journal | ForEach-Object { "$($_.Name) ×$($_.Count)" }) -join '、'
 if ([string]::IsNullOrEmpty($journalSummary)) { $journalSummary = $null }
 
-# ---- 数据链路 ----
+# 数据链路
 $telList = @(Get-ValidList $tsOk 'Telemetry')
 $telFirst = if ($telList.Count -ge 1) { [double]$telList[0].Telemetry } else { $null }
 $telLast  = if ($telList.Count -ge 1) { [double]$telList[-1].Telemetry } else { $null }
@@ -299,7 +300,7 @@ $linkFirst = if ($linkList.Count -ge 1) { [double]$linkList[0].Link } else { $nu
 $linkLast  = if ($linkList.Count -ge 1) { [double]$linkList[-1].Link } else { $null }
 $linkDelta = if ($linkList.Count -ge 2) { $linkLast - $linkFirst } else { $null }
 
-# ---- 日志 ----
+# 日志
 $lbList = @(Get-ValidList $tsOk 'LogBytes')
 $lbFirst = if ($lbList.Count -ge 1) { [double]$lbList[0].LogBytes } else { $null }
 $lbLast  = if ($lbList.Count -ge 1) { [double]$lbList[-1].LogBytes } else { $null }
@@ -316,7 +317,7 @@ if (($null -ne $leInc -and $leInc -lt 0) -or ($null -ne $lwInc -and $lwInc -lt 0
     $logDecreaseNote = '错误/警告计数出现下降——可能因日志文件按天滚动或应用重启换了计数基线，需人工核对'
 }
 
-# ---- 判定 ----
+# 判定
 $verdicts = [System.Collections.Generic.List[object]]::new()
 
 # 1 采样完整性
@@ -418,7 +419,7 @@ $total = if ($isIncomplete) { 'INCOMPLETE' }
          elseif ($noteCount -gt 0) { 'PASS-WITH-NOTES' }
          else { 'PASS' }
 
-# ---- 渲染 Markdown ----
+# 渲染 Markdown
 $md = [System.Collections.Generic.List[string]]::new()
 [void]$md.Add('# Soak 观察判定报告')
 [void]$md.Add('')
@@ -548,7 +549,7 @@ switch ($total) {
     default { [void]$md.Add("**INCOMPLETE** —— 观察未完成（已采 $n 行 / 期望 $expectedSamples 行，低于 80%），本报告只用于中途检查，不构成通过/不通过结论；判定明细中已有「不通过」$failCount 项、「需人工判断」$noteCount 项。") }
 }
 
-# ---- 输出 ----
+# 输出
 $report = ($md -join "`r`n") + "`r`n"
 if ($OutFile) {
     try {

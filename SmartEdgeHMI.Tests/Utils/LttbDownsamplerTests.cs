@@ -4,6 +4,8 @@ using SmartEdgeHMI.Utils.Math;
 
 namespace SmartEdgeHMI.Tests.Utils;
 
+/// <summary>LTTB 降采样: 输出点数、首尾保留与尖峰不被平均掉</summary>
+/// <remarks>用固定基准时间构造序列, 避免测试结果随真实时钟漂移</remarks>
 public class LttbDownsamplerTests
 {
     private static readonly DateTime _baseTime = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);

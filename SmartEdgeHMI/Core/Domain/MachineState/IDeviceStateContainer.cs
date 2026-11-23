@@ -5,49 +5,48 @@ using SmartEdgeHMI.Models.Messages;
 
 namespace SmartEdgeHMI.Core.Domain.MachineState;
 
-/// <summary>设备运行时状态容器: 聚合最新遥测值、连接状态和活跃报警, 提供 UI 绑定数据源</summary>
+/// <summary>设备运行时状态容器: 聚合最新遥测、连接状态与活跃报警, 作为 UI 的数据绑定源</summary>
+/// <remarks>
+/// 写入来自串口读循环的后台线程, 读取在 UI 线程; 实现须保证二者并发安全。
+/// <see cref="INotifyPropertyChanged.PropertyChanged"/> 在写入线程上触发, 集合数据以副本形式拉取。
+/// </remarks>
 public interface IDeviceStateContainer : INotifyPropertyChanged
 {
-    /// <summary>最新温度值</summary>
     Temperature LatestTemperature { get; }
 
-    /// <summary>最新湿度值</summary>
     Humidity LatestHumidity { get; }
 
-    /// <summary>最新设备状态</summary>
     DeviceStatus LatestDeviceStatus { get; }
 
-    /// <summary>最新设备错误码</summary>
     ErrorCode LatestErrorCode { get; }
 
-    /// <summary>最新数据质量标记</summary>
     DataQuality LatestQuality { get; }
 
-    /// <summary>最新遥测时间戳</summary>
     DateTime LatestTimestamp { get; }
 
-    /// <summary>最新源端口名</summary>
+    /// <summary>最近一次上报数据的源端口, 用于定位是哪一路设备在驱动界面显示</summary>
     string LatestPortName { get; }
 
-    /// <summary>获取当前活跃报警字典(深拷贝)，避免外部修改内部状态</summary>
+    /// <summary>当前活跃报警的独立副本(设备ID, 错误码), 调用方修改不影响内部状态</summary>
     IReadOnlyDictionary<string, ErrorCode> GetActiveAlarms();
 
-    /// <summary>是否存在活跃报警</summary>
+    /// <summary>是否存在活跃报警, 用于界面告警条显隐</summary>
     bool HasActiveAlarms { get; }
 
-    /// <summary>检查指定端口是否已连接</summary>
+    /// <summary>指定端口当前是否处于 Connected 状态</summary>
     bool IsPortConnected(string portName);
 
-    /// <summary>获取已连接端口集合(深拷贝)，避免外部修改内部状态</summary>
+    /// <summary>已连接端口的独立副本</summary>
     IReadOnlySet<string> GetConnectedPorts();
 
-    /// <summary>更新遥测数据并触发属性变更通知</summary>
+    /// <summary>写入一次遥测并触发属性变更通知</summary>
+    /// <remarks>可在任意线程调用; 多端口并发上报时 Latest* 为最后写入者胜出</remarks>
     void UpdateTelemetry(string portName, Temperature temperature, Humidity humidity,
         DeviceStatus status, ErrorCode error, DataQuality quality);
 
-    /// <summary>更新端口连接状态</summary>
+    /// <summary>更新端口连接状态, 除 Connected 外均视为断开</summary>
     void UpdateConnectionState(string portName, ConnectionState state);
 
-    /// <summary>替换活跃报警字典</summary>
+    /// <summary>整体替换活跃报警表</summary>
     void UpdateActiveAlarms(IReadOnlyDictionary<string, ErrorCode> alarms);
 }

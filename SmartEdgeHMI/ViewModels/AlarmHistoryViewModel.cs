@@ -12,6 +12,11 @@ using SmartEdgeHMI.Utils.UI;
 
 namespace SmartEdgeHMI.ViewModels;
 
+/// <summary>报警历史页视图模型: 加载历史记录、接收新报警、执行确认</summary>
+/// <remarks>
+/// 新报警经 <see cref="AlarmRecorded"/> 消息从采集线程送达, 因此 <see cref="Receive"/> 内必须切回 UI 线程再改集合。
+/// 列表长度上限复用了日志配置的 <c>Logging:MaxLogEntries</c>, 与其他页共用同一容量阈值。
+/// </remarks>
 public partial class AlarmHistoryViewModel : ViewModelBase,
     IRecipient<AlarmRecorded>
 {
@@ -41,6 +46,7 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
 
     private void OnAlarmStatesChanged()
     {
+        // 状态字段被状态机原地改写, 集合本身没有增删, 因此只能靠刷新视图重读行内容
         DispatchToUI(() => CollectionViewSource.GetDefaultView(AlarmRecords).Refresh());
     }
 
@@ -49,6 +55,7 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
         DispatchToUI(() =>
         {
             AlarmRecords.Add(message.Record);
+            // 单条移除
             if (AlarmRecords.Count > _settingsService.Current.Logging.MaxLogEntries)
                 AlarmRecords.RemoveAt(0);
         });
@@ -60,6 +67,7 @@ public partial class AlarmHistoryViewModel : ViewModelBase,
         _alarmStateMachine.Acknowledge(deviceId);
     }
 
+    /// <summary>重新加载整页历史(清空后批量填充, 只发一次集合通知)</summary>
     [RelayCommand]
     private async Task LoadAlarmHistoryAsync()
     {
