@@ -1,8 +1,7 @@
 # SmartEdgeHMI v1.2.0 发布说明
 
-> 版本 1.2.0 ｜ 日期 2026-11-22（2026-11-23 隐私脱敏后重打）｜ 目标框架 .NET 8 (win-x64, self-contained)
-> 状态：**已打 tag `v1.2.0`，GitHub Release 页与资产已建立**（发布包在 `1744cd2` 上清洁构建，2026-11-23 隐私脱敏后重打；tag 提交相对它只含文档）：[Releases/tag/v1.2.0](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/tag/v1.2.0)。资产已从 Release 页回下载复核 SHA256，检查表 §10 的「解压启动」仍待补做。
-> 2026-11-23 隐私脱敏：公开文档中的机器名、安全软件与环境信息已移除，Git 历史已重写并重打发布包；重写前包 `4a2d4920…a440fd` 与旧提交号/CI 运行号已作废，本文提交号均为重写后历史。
+> 版本 1.2.0 ｜ 日期 2026-11-23 ｜ 目标框架 .NET 8 (win-x64, self-contained)
+> 状态：**已打 tag `v1.2.0`，GitHub Release 页与资产已建立**（发布包在 `1744cd2` 上清洁构建；tag 提交相对它只含文档）：[Releases/tag/v1.2.0](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/tag/v1.2.0)。资产已从 Release 页回下载复核 SHA256，检查表 §10 的「解压启动」仍待补做。
 > 旧候选包（`275a6d6` / `6fc86aa3…768077`；`c9997a5` / `76e9641a…7681`；更早 `0168071` / `c02c87aa…e230b`；`5a7c383` / `24fa4004…b168`、`6250434` / `99e8a5e9…`）与其结论作废。
 > 2026-11-22 真机硬件验收（NodeMCU v2 + CH340, COM4）第一轮在 HW-06 判失败，暴露三条 P1（协议选择不持久化 / 重启后不自动连串口 / 手动重连与在途重试竞态）；修复后第二轮 HW-02/04/05/06 全部通过，验收记录见 [hardware-validation-2026-11-22.md](hardware-validation-2026-11-22.md)。
 
@@ -94,11 +93,11 @@
 | 产物 | `dist/SmartEdgeHMI-1.2.0-win-x64.zip` |
 | 大小 | 82,066,878 字节 / 78.27 MB |
 | SHA256 | `0c1869d9fa93a62955fbb171100ef73034208c05aef45b8b4736093a3611e949` |
-| 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验。旧候选包均已作废：`6fc86aa3…768077`（`275a6d6`）、`76e9641a…7681`（`c9997a5`）、`c02c87aa…e230b`（`0168071`）、`24fa4004…b168`（`5a7c383`）、`99e8a5e9…34a1`（`6250434`）；重写前发布包 `4a2d4920…a440fd` 作废（2026-11-23 隐私脱敏重打） |
-| 构建来源 | `main` @ `1744cd2`，清洁构建（先删除全部 `bin/obj/.vs/.pio/node_modules/dist` 构建产物再 `pwsh tools/package.ps1 -Version 1.2.0`，2026-11-23）；重写后 CI 运行号用 `gh run list --commit 1744cd2` 查询；包内 `SmartEdgeHMI.exe` 与 `SmartEdgeHMI.Watchdog.exe` 的 `ProductVersion` 均为 `1.2.0+1744cd27a294b805ae9267e06673bd9285246a13` |
+| 校验方式 | 脚本同时写入 `dist/<zip>.sha256`；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验。旧候选包均已作废：`6fc86aa3…768077`（`275a6d6`）、`76e9641a…7681`（`c9997a5`）、`c02c87aa…e230b`（`0168071`）、`24fa4004…b168`（`5a7c383`）、`99e8a5e9…34a1`（`6250434`）；此前发布包 `4a2d4920…a440fd` 已作废 |
+| 构建来源 | `main` @ `1744cd2`，清洁构建（先删除全部 `bin/obj/.vs/.pio/node_modules/dist` 构建产物再 `pwsh tools/package.ps1 -Version 1.2.0`，2026-11-23）；CI 运行号用 `gh run list --commit 1744cd2` 查询；包内 `SmartEdgeHMI.exe` 与 `SmartEdgeHMI.Watchdog.exe` 的 `ProductVersion` 均为 `1.2.0+1744cd27a294b805ae9267e06673bd9285246a13` |
 | 包内容 | 511 条目 = 503 `.dll` / 5 `.json` / 3 `.exe`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map/.h`、无 `secrets.h`（本轮实测口径） |
 | 门禁 | `dotnet build -c Release` 0 错误（2 条既有 NU1701）；`dotnet test -c Release --no-build` **129 通过 / 0 失败 / 0 跳过**；`dotnet format --verify-no-changes` 退出码 0（2026-11-23，先删净 `bin` / `obj` / `.vs` / `.pio` / `node_modules` / `dist` 再还原） |
-| tag | `v1.2.0`（注解标签）指向本文件所在提交；该提交相对包构建提交 `1744cd2` 只含文档，`git diff 1744cd2 v1.2.0 -- SmartEdgeHMI/ SmartEdgeHMI.Watchdog/ Firmware/ Simulator/ tools/ .github/` 输出为空即证明源码与二进制零差异 |
+| tag | `v1.2.0`（注解标签）指向发布提交（本文件随该提交发布；后续文档修订不改变 tag）；该提交相对包构建提交 `1744cd2` 只含文档，`git diff 1744cd2 v1.2.0 -- SmartEdgeHMI/ SmartEdgeHMI.Watchdog/ Firmware/ Simulator/ tools/ .github/` 输出为空即证明源码与二进制零差异 |
 
 ## 9. 证据索引
 
@@ -118,5 +117,5 @@
 | 基准时效依据 | `287c357`（最后一次基准相关提交）之后 `SmartEdgeHMI/Data` 仅 `a214390` 新增保留服务，未触及 LTTB 与写入热路径，无需重跑基准 |
 | 旧库生成提交（v1.1.0 tag 不可编译，改用同 schema 旧库） | `f556af6` |
 | 串口修复提交 | `8d89037` |
-| CI run | 重写后提交的新 CI 在推送后运行，运行号用 `gh run list --commit $(git rev-parse v1.2.0)` 查询；旧运行号 `45008115174` / `45009427633` 属于重写前历史 |
+| CI run | 运行号用 `gh run list --commit $(git rev-parse v1.2.0)` 查询 |
 | 打包脚本 | `tools/package.ps1` |

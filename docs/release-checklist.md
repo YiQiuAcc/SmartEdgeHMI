@@ -3,14 +3,13 @@
 > 适用范围：SmartEdgeHMI Windows 便携 zip 发布（主程序 + Watchdog）。
 > 使用方式：发布负责人逐项勾选；发布前存在未通过项时不得打 tag（本表 §10 首项属发布后动作，不计入发布前门禁，但也不得提前勾选）。
 > 性能数字如需引用，一律出自 [performance-benchmarks.md](performance-benchmarks.md)，不得新造口径。
-> 2026-11-23 隐私脱敏：Git 历史已重写并重打发布包；旧提交号/CI 运行号与重写前包 `4a2d4920…a440fd` 已作废，本文提交号为重写后历史。
 
 ## 1. 版本与分支
 
 - [x] 版本号确定（SemVer，如 v1.2.0），与 Release Notes / tag 名一致（版本 1.2.0）
 - [x] 发布分支为 `main`，工作区干净：`git status` 无未提交 / 未跟踪文件（文档提交后复核）
-- [x] tag 指向本次已验证的提交，tag 名与版本一致（`v1.2.0` 为注解标签，指向本文档所在提交。**说明**：发布包构建于 `1744cd2`，tag 提交相对它只含文档，源码与二进制零差异——`git diff 1744cd2 v1.2.0 -- SmartEdgeHMI/ SmartEdgeHMI.Watchdog/ Firmware/ Simulator/ tools/ .github/` 输出为空即可验证；包内 `ProductVersion = 1.2.0+1744cd2…` 因此必然与 tag 提交号不同，这是确定性构建（版本号内嵌 `SourceRevisionId`）与「哈希必须先写进文档」两个约束叠加的结果，已在 §7 与 Release Notes §8 记录）
-- [x] CI 在该提交上全绿（restore / build / test / format 四步）（重写后提交的 CI 运行号用 `gh run list --commit $(git rev-parse v1.2.0) --limit 1` 查询；旧运行号 `45008115174` / `45009427633` 属于重写前历史）
+- [x] tag 指向本次已验证的提交，tag 名与版本一致（`v1.2.0` 为注解标签，指向发布提交（本文档随该提交发布；后续文档修订不改变 tag）。**说明**：发布包构建于 `1744cd2`，tag 提交相对它只含文档，源码与二进制零差异——`git diff 1744cd2 v1.2.0 -- SmartEdgeHMI/ SmartEdgeHMI.Watchdog/ Firmware/ Simulator/ tools/ .github/` 输出为空即可验证；包内 `ProductVersion = 1.2.0+1744cd2…` 因此必然与 tag 提交号不同，这是确定性构建（版本号内嵌 `SourceRevisionId`）与「哈希必须先写进文档」两个约束叠加的结果，已在 §7 与 Release Notes §8 记录）
+- [x] CI 在该提交上全绿（restore / build / test / format 四步）（CI 运行号用 `gh run list --commit $(git rev-parse v1.2.0) --limit 1` 查询）
 
 ## 2. 构建与测试
 
@@ -36,7 +35,7 @@
 ## 5. appsettings 配置检查
 
 - [x] 现场可调参数（批量写入 / 刷盘间隔 / 轮询间隔 / Watchdog 超时等）均在 `SmartEdgeHMI/appsettings.json`，无研发硬编码泄漏到现场配置面（`appsettings.json` 已入包，包内容核对见 §7）
-- [x] 默认值开箱即用（首启无需手改即可连接模拟器 / 设备）✅ 首启不再因非法默认端口失败（`ComPort` 默认空＝未选择），首启 1.24 s 进入主界面、设置文件自动生成；需在界面选择实际端口（未实现自动选择）。本机发布包写 `%LOCALAPPDATA%` 被安全软件拦截，属环境限制，见 §12。
+- [x] 默认值开箱即用（首启无需手改即可连接模拟器 / 设备）✅ 首启不再因非法默认端口失败（`ComPort` 默认空＝未选择），首启 1.24 s 进入主界面、设置文件自动生成；需在界面选择实际端口（未实现自动选择）。本机发布包写 `%LOCALAPPDATA%` 失败，根因是低完整性目录，属环境限制，见 §12。
 - [x] 发布包内无凭据残留：`Firmware/src/secrets.h`、测试密钥、本地路径不入包（包内容核对：0 个源码 / 密钥文件入包，无 `secrets.h`）
 - [x] 日志级别 / 路径配置合理（生产为 Information 及以上，路径可写）✅ 默认 Information（`appsettings.json` 可调），路径 `%LOCALAPPDATA%\SmartEdgeHMI\logs`，不可写时回退程序目录（本机实测走到回退分支并正常写盘）。
 
@@ -56,7 +55,7 @@
 - [x] 包内容核对：主程序 exe + Watchdog exe + `appsettings.json` + 运行所需依赖；不含源码 / 测试 / 基准工程 / 模拟器（含 `SmartEdgeHMI.exe` / `SmartEdgeHMI.Watchdog.exe` / `appsettings.json`；0 个 `.cs/.csproj/.sln/.pdb/.js/.map`、无 `secrets.h`）
 - [x] 干净目录（及一台无开发环境的机器）解压后可直接启动（本机空白目录解压后直接启动通过；**干净机已于 2026-11-22 验收通过**：一台无开发环境的 Windows 10 机器，无 .NET SDK、无 .NET 8 运行时，解压 511 文件后启动 1.364 s 出现主窗口，见 §12 与 Release Notes 已知问题 2）
 - [x] SHA256 校验和（脚本自动写入 `dist/<zip>.sha256`，格式 `<hash>  <文件名>`），记录到 Release Notes：
-      `SHA256: 0c1869d9fa93a62955fbb171100ef73034208c05aef45b8b4736093a3611e949`（旧候选包 `6fc86aa33f8a52c81f0504ff44f2f9cb85276017e1e7a3c378b8c72428876077` / `275a6d6` 作废，`76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681` / `c9997a5` 作废，`c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` / `0168071` 作废，`24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `5a7c383` 作废；更早 `99e8a5e9…34a1` / `6250434` 已作废），2026-11-23 清洁构建时由脚本记录；重写前发布包 `4a2d4920…a440fd` 作废（隐私脱敏重打）；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验
+      `SHA256: 0c1869d9fa93a62955fbb171100ef73034208c05aef45b8b4736093a3611e949`（旧候选包 `6fc86aa33f8a52c81f0504ff44f2f9cb85276017e1e7a3c378b8c72428876077` / `275a6d6` 作废，`76e9641ab07478a3633b850ee66052db5d8bf9e825ede159519bd6b96607f681` / `c9997a5` 作废，`c02c87aa5e6fcfbb04c81e62cb3a8685ce86c2bdcefc6072f06d5962ce6e230b` / `0168071` 作废，`24fa400406a1b456fef5d6513fe87edc3409ad6ae09368841b7d545b3b29b168` / `5a7c383` 作废；更早 `99e8a5e9…34a1` / `6250434` 已作废），2026-11-23 清洁构建时由脚本记录；此前发布包 `4a2d4920…a440fd` 已作废；`pwsh tools/verify-release.ps1 -Version 1.2.0` 退出码 0 可复验
 
 ## 8. Release Notes
 
@@ -199,6 +198,6 @@
 | 门禁 | `dotnet test -c Release --no-build` **129 通过 / 0 失败 / 0 跳过**；`dotnet format --verify-no-changes` 退出码 **0** |
 | 打包 | `pwsh tools/package.ps1 -Version 1.2.0` → `dist/SmartEdgeHMI-1.2.0-win-x64.zip`，**82,066,878 字节 / 78.27 MB**，511 条目（503 `.dll` / 5 `.json` / 3 `.exe`），0 个禁止扩展名、无 `secrets.h`、无 `.workbuddy` |
 | 校验 | SHA256 `0c1869d9fa93a62955fbb171100ef73034208c05aef45b8b4736093a3611e949`；两个 exe 的 `ProductVersion` 均为 `1.2.0+1744cd2…`；`pwsh tools/verify-release.ps1 -Version 1.2.0` 四项检查退出码 **0** |
-| 提交与 CI | `1744cd2`（包构建提交）；重写后提交的 CI 运行号用 `gh run list --commit $(git rev-parse v1.2.0) --limit 1` 查询（旧运行号 `45008115174` / `45009427633` 属于重写前历史） |
+| 提交与 CI | `1744cd2`（包构建提交）；CI 运行号用 `gh run list --commit $(git rev-parse v1.2.0) --limit 1` 查询 |
 | tag / Release | 注解标签 `v1.2.0` 已推送到 GitHub，指向回填发布状态的文档提交；**GitHub Release 页与资产已建立**（[v1.2.0](https://github.com/YiQiuAcc/SmartEdgeHMI/releases/tag/v1.2.0)），§10 已完成下载与 SHA256 复核，解压启动待补做 |
 | 遗留 | `dist/` 与 `.workbuddy/` 按约定不入库；`Firmware/src/secrets.h` 保持本地；无残留 SmartEdgeHMI 进程 |
