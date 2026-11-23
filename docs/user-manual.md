@@ -109,10 +109,10 @@ pwsh ./tools/restore-data.ps1 -BackupDir <某次备份目录> -AppDir <目标发
 - 没有自动选串口（未实现，需在界面选择实际端口）。
 - 没有 Modbus TCP / MQTT / CAN / OTA / 云平台（v1.2 非目标）。
 - JSON-Lines 串口模式仅由 Node.js 模拟器提供；真实 ESP8266 固件串口只支持 Modbus RTU（115200 8N1、从站 1、FC03 读 / FC06 写）。
-- 真实 ESP8266 硬件验收六项（连续运行 / 拔插 / 异常报文 / 指令下发 / 断电恢复 / Watchdog 重启后串口恢复）全部「未执行」；依赖 DTR/RTS 的设备行为未验证。
-- 无开发环境的 Windows 干净机未验证（解压启动仅在本机验证；本机存在「未签名 exe 写 `%LOCALAPPDATA%` 被安全软件拦截」的环境限制，需干净机复验）。
-- 回滚与数据库冷备份演练未执行：回滚路径是否可用，**见 release-checklist §9**，本文不替它下结论。
-- 24 小时连续观察进行中、结论未出。
+- 真实 ESP8266 硬件验收六项（连续运行 / 拔插 / 异常报文 / 指令下发 / 断电恢复 / Watchdog 重启后串口恢复）已于 2026-11-22 两轮执行、六项全过（带备注）；依赖 DTR/RTS 的设备行为未验证。
+- 无开发环境的 Windows 干净机已验证（2026-11-22，解压启动、设置落盘、双开拦截、Watchdog 重启均通过）；本机写盘限制的根因是低完整性目录，与安全软件无关（release-notes §5.4）。
+- 回滚与数据库冷备份演练已于 2026-11-22 执行并通过，**见 release-checklist §9**。
+- 24 小时连续观察已完成（PASS-WITH-NOTES），见 release-checklist §12 D。
 - 手工删除 `-wal` 未验证，不做此操作指引。
 
 ## 依据表
@@ -157,9 +157,9 @@ pwsh ./tools/restore-data.ps1 -BackupDir <某次备份目录> -AppDir <目标发
 | 36 | 遥测保留默认 30 天 / 报警不删 / 24h 一轮 | data-retention.md §2,§3 |
 | 37 | 备份/恢复命令、守卫、备份集、退出码 | tools/README.md:5-17；tools/backup-data.ps1:80-83,94；tools/restore-data.ps1:48 |
 | 38 | 升级方式与升级前备份 / 回滚步骤 | release-notes §6,§7 |
-| 39 | 回滚/冷备份演练未执行 | release-checklist §9 |
+| 39 | 回滚/冷备份演练已执行 | release-checklist §9 |
 | 40 | 无自动选串口 | release-checklist §5 |
 | 41 | 无 Modbus TCP/MQTT/CAN/OTA/云平台 | docs/next-steps-v1.2.md §7 |
-| 42 | 硬件验收六项未执行 / 干净机未验证 | release-notes §5；hardware-validation.md §1 |
-| 43 | `%LOCALAPPDATA%` 拦截属环境限制 / 保存失败日志与影响 | release-checklist §12 B；release-notes §5.6；SettingsService.cs:53,64；ConnectionViewModel.cs:165；MonitorViewModel.cs:219 |
+| 42 | 硬件验收六项已执行（两轮全过）/ 干净机已验证；未覆盖边界见 release-notes §5 | release-notes §5；hardware-validation-2026-11-22.md |
+| 43 | 低完整性目录导致 `%LOCALAPPDATA%` 写失败（非产品缺陷，非安全软件拦截）/ 保存失败日志与影响 | release-checklist §12；release-notes §5.4；SettingsService.cs:53,64；ConnectionViewModel.cs:165；MonitorViewModel.cs:219 |
 | 44 | WAL 约 4.13 MB 自限 | data-retention.md §4；release-checklist §12 D |
