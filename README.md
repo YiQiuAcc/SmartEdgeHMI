@@ -424,15 +424,15 @@ pio run --target upload
 | format 门禁 | `dotnet format --verify-no-changes` 退出码 0（2026-11-22 实测） | 同 CI 第 4 步 |
 | 注释规范 | 项目统一标准：注释类型选择、XML 文档门槛、六类必写契约（并发/异步/缓冲/协议/状态机/性能）、格式与禁止事项，附自检命令与正反例 | [docs/comment-guidelines.md](docs/comment-guidelines.md) |
 | 性能基准 | BenchmarkDotNet 实测：LTTB 100 万点 → 1000 点单次 13.8 ms / 分配 7.87 KB；SQLite WAL+NORMAL 批量事务（50 条/批）约 14.8 万行/秒；查询下推后报警历史 118 µs、报警上下文 1.1 ms、趋势 20 万行分配 0.75 MB | [docs/performance-benchmarks.md](docs/performance-benchmarks.md) |
-| 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）：根因 / 修复 / 防复发约定 | [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) |
+| 故障复盘 | 串口关闭后 CTS 释放竞态（未观察 Task 异常）；Watchdog 心跳管道同名串台：根因 / 修复 / 防复发约定 | [postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md) · [postmortem-watchdog-pipe.md](docs/postmortem-watchdog-pipe.md) |
 | 数据保留 | 遥测 30 天分批清理 / 报警默认不删 / 库文件不缩小的边界说明 | [docs/data-retention.md](docs/data-retention.md) |
 | 发布包 | `tools/package.ps1` 一键产出 self-contained zip（78.27 MB，511 个文件）+ SHA256；`pwsh tools/verify-release.ps1 -Version 1.2.0` 四项检查退出码 0，重跑幂等 | [tools/package.ps1](tools/package.ps1) · [release-checklist.md](docs/release-checklist.md) |
 | 真实硬件验收 | **已执行（2026-11-22，NodeMCU v2 + CH340 / COM4，两轮）**：六项全过（带备注）——第一轮 HW-06 失败并暴露 3 条 P1，修复后第二轮强杀恢复 7.8 s、125 分钟浸泡零中断；遗留 F-4 / F-6 转入 v1.2.1 | [docs/hardware-validation-2026-11-22.md](docs/hardware-validation-2026-11-22.md) · [验收模板](docs/hardware-validation.md) |
-| 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表 | [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md) · [docs/release-checklist.md](docs/release-checklist.md) |
+| 里程碑与发布 | v1.2 目标 / DoD / 任务表；发布检查表；v1.1.0 标签与发布包追溯 | [next-steps-v1.2.md](docs/next-steps-v1.2.md) · [release-checklist.md](docs/release-checklist.md) · [traceability-v1.1.0.md](docs/traceability-v1.1.0.md) |
 | 现场操作手册 | 面向现场工程师：安装启动 / 连接 / 阈值 / 报警 / 备份回滚 / 常见问题，每条行为描述附依据出处 | [docs/user-manual.md](docs/user-manual.md) |
 
 ---
 
 ## 路线图
 
-详见 [ROADMAP.md](ROADMAP.md) — 包含多协议扩展、持久化优化、工程化等规划。
+详见 [ROADMAP.md](ROADMAP.md) — 各阶段完成情况、工程化补全与 v1.2 里程碑记录。

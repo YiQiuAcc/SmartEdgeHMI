@@ -42,12 +42,12 @@
 - [x] Channel 生产者-消费者异步批处理：队列满 50 条或 1 秒窗口触发批量写入
 - [x] 报警边缘触发状态机：上升沿记录、恢复迟滞计数防抖
 
-### 阶段六：真实硬件接入 [未完成]
+### 阶段六：真实硬件接入 [已完成]
 
 - [x] Esp8266 C++ 固件，通过 Serial 发送协议报文
 - [x] 解析上位机重置/动作指令，控制板载 LED
 
-> 硬件验收未执行，见 [docs/hardware-validation.md](docs/hardware-validation.md)。
+> 2026-11-22 完成真机两轮验收（NodeMCU v2 + CH340 / COM4）：第一轮 5 项通过、HW-06 失败并暴露 3 条 P1，修复后第二轮六项全过（含 125 分钟浸泡）。记录见 [docs/hardware-validation-2026-11-22.md](docs/hardware-validation-2026-11-22.md)，流程模板见 [docs/hardware-validation.md](docs/hardware-validation.md)。
 
 ### 阶段七：稳定性与工程化 [已完成]
 
@@ -56,10 +56,10 @@
 - [x] 多语言国际化基础：中/英文资源字典 (Strings.zh-CN.xaml / Strings.en-US.xaml)，全局调色板 (Colors.xaml)
 - [x] 单元测试：XUnit 覆盖 CRC 校验、协议解包、报警状态机核心逻辑
 
-### 阶段八：工程化外壳与可信度补全 [基本完成 · 剩硬件验收与遗留提交]
+### 阶段八：工程化外壳与可信度补全 [已完成]
 
-> 定位：代码本体（分层、命名、注释、死代码）已在 `bc2e5fe` / `13d0daa` 两轮清理完毕，本阶段不再动业务代码结构，只补"外部可验证的信号"与"结果可量化的证据"。按投入产出比排序执行。
-> 后续规划见 [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md)。
+> 定位：代码本体（分层、命名、死代码）已在 `bc2e5fe` / `13d0daa` 两轮清理；注释于 2026-11-23 按 [docs/comment-guidelines.md](docs/comment-guidelines.md) 全仓统一。本阶段不再动业务代码结构，只补"外部可验证的信号"与"结果可量化的证据"。按投入产出比排序执行。
+> v1.2 里程碑、DoD 与发布记录见 [docs/next-steps-v1.2.md](docs/next-steps-v1.2.md)。
 
 **P0 · 可信度打底（必须先做，后面所有事的可信度都挂在这上面）**
 
@@ -71,7 +71,7 @@
 
 - [x] 资源归位：4 个演示 GIF 移入 `docs/assets/`，文件名改为英文 kebab-case（`modbus-connection.gif` 等），README 引用路径已同步修正
 - [x] 清理 `Simulator/` 根目录下的临时脚本（`test_modbus.js` 已删除）
-- [ ] 验证并提交工作区遗留改动（`coverlet.collector` 8.0.1 + `SQLitePCLRaw.lib.e_sqlite3` 原生库）：**未提交** —— 当前 CI / LICENSE / GIF 归档 / 基准 / 文档等改动均在 Git 工作区；提交前须跑通 `dotnet test` 确认全绿
+- [x] 验证并提交工作区遗留改动（`coverlet.collector` 8.0.1 + `SQLitePCLRaw.lib.e_sqlite3` 原生库）：已随后续提交落地；2026-11-23 复验 build 0 错误、129 单测通过、format 退出码 0
 - [x] 统一包版本管理：新增 [Directory.Build.props](Directory.Build.props)（公共属性 + CI 标记）与 [Directory.Packages.props](Directory.Packages.props)（集中包版本，含 BenchmarkDotNet 0.16.0-preview.2），消除 csproj 重复版本声明
 
 **P2 · 简历增信（真正拉开差距的两件事）**
@@ -79,7 +79,7 @@
 - [x] 引入 BenchmarkDotNet 性能基准（[docs/performance-benchmarks.md](docs/performance-benchmarks.md)：LTTB 1 万 / 10 万 / 100 万点耗时与分配、SQLite 逐条 vs 50 / 500 批量事务吞吐，含测试环境与未测量边界）
     - 原始产物（md/csv/html/日志）留存于本地 `BenchmarkDotNet.Artifacts/`（已被 .gitignore 忽略），关键表格已复制进文档；未单独出图归档到 `docs/assets/`
 - [x] 撰写故障复盘文档 [docs/postmortem-serial-dispose.md](docs/postmortem-serial-dispose.md)，基于 `30390aa`（关闭 COM1 后访问已释放 CTS 导致未观察 Task 异常）复盘：故障现象 → 排查路径 → 根因 → 修复方案 → 防复发措施
-- [ ] 真实硬件验收：**未执行**（本机仅有 ELTIMA 虚拟串口对），可执行验收模板见 [docs/hardware-validation.md](docs/hardware-validation.md)
+- [x] 真实硬件验收：**已执行（2026-11-22，两轮）**，六项全过（带备注）；第一轮失败原因与修复见 [hardware-validation-2026-11-22.md](docs/hardware-validation-2026-11-22.md)，流程模板见 [hardware-validation.md](docs/hardware-validation.md)
 
 **明确不做（避免负收益）**
 
@@ -100,4 +100,12 @@
 - [x] **CI 增强**：trx + XPlat Code Coverage 产物上传、NuGet 漏洞扫描（informational）
 - [x] **启动配置校验**：9 个关键参数越界即 Fatal + 弹窗 + 退出，不带病运行
 - [x] **日志控制台批量裁剪**：稳态由"每条日志裁一次"降为"每 ~上限/10 条裁一次"
-- [x] 单元测试 48 → 99，全部通过（2026-11-21 实测）；build 0 错误；format 退出码 0
+- [x] 单元测试 48 → 99，全部通过（2026-11-21 实测）；截至 v1.2.0 累计 129 通过（2026-11-22 清洁构建）；build 0 错误；format 退出码 0
+
+### 阶段十：注释规范与可维护性 [已完成]
+
+> 2026-11-23。目标：把注释从个人习惯收敛为可评审的仓库标准，不改变产品行为。
+
+- [x] 新增 [docs/comment-guidelines.md](docs/comment-guidelines.md)：注释判据、类型选择、XML 文档门槛、六类必写契约、格式与禁止事项、自检命令
+- [x] 全仓按规范清理注释（C# / Watchdog / Shared / Tests / Benchmarks / Firmware / Simulator / tools 脚本）：删除复述代码、装饰线、空壳文档与口语化表述，补齐并发、取消、缓冲区所有权、协议映射与状态迁移契约
+- [x] 门禁：build 0 错误、129 单测通过、format 退出码 0、5 个 tools 脚本语法解析通过

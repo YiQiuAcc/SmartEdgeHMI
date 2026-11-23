@@ -1,6 +1,8 @@
 # SmartEdge-HMI 注释规范
 
-本规范是 SmartEdge-HMI 仓库的注释唯一标准，适用于 `SmartEdgeHMI`、`SmartEdgeHMI.Watchdog`、`Shared`、`SmartEdgeHMI.Tests`、`SmartEdgeHMI.Benchmarks` 全部 C# 代码，以及 `Firmware/`、`Simulator/` 中的嵌入式与脚本代码。代码评审以本文件为准；与 IDE 模板生成的注释冲突时，以本文件为准。
+本规范是 SmartEdge-HMI 仓库的注释唯一标准，适用于 `SmartEdgeHMI`、`SmartEdgeHMI.Watchdog`、`Shared`、`SmartEdgeHMI.Tests`、`SmartEdgeHMI.Benchmarks` 全部 C# 代码，以及 `Firmware/`、`Simulator/`、`tools/` 中的嵌入式与脚本代码。代码评审以本文件为准；与 IDE 模板生成的注释冲突时，以本文件为准。
+
+> 落地状态：2026-11-23 起全仓执行，覆盖 C#、固件、模拟器与 tools 脚本。
 
 核心判据只有一条：**注释必须承载代码本身无法表达的信息，否则不写。**
 
@@ -62,7 +64,7 @@
 - 统一使用中文注释，保留标准英文技术术语（`Modbus RTU`、`CRC16`、`Pipe`、`Dispatcher`、`ArrayPool` 等不翻译）。
 - 技术名称、单位、协议术语必须准确：`ms`、`°C`、`%RH`、`FC03`、`N81` 等按行业惯例书写，不混用全角符号。
 - 行注释使用 `//`，与所注释代码**同缩进**；注释放在被说明代码的上方；仅当说明同一行末尾的短约束时才使用行尾注释。
-- 标点使用中文标点。行注释（`//`）句末不加句号，多句之间用逗号或分号分隔；XML 文档按行文正常断句，允许多句分段。
+- 行注释句末不加句号，多句之间用逗号或分号分隔。C#/C++/JS 注释沿用仓库现有风格：逗号、冒号使用半角符号并在其后保留一个空格；PowerShell 注释沿用中文标点。XML 文档按行文正常断句，允许多句分段。
 - 特殊事项使用固定标记，冒号后空一格，后接可执行信息：
 
 ```csharp
