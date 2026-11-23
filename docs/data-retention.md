@@ -1,7 +1,7 @@
 # 数据保留策略
 
 > 引入版本：v1.2.x（TASK-104，2026-11-17）｜ 代码：`SmartEdgeHMI/Data/Retention/`
-> 相关：[performance-benchmarks.md](performance-benchmarks.md) · [next-steps-v1.2.md](next-steps-v1.2.md)
+> 相关：[performance-benchmarks.md](performance-benchmarks.md) · [v1.2 计划（归档）](archive/next-steps-v1.2.md)
 
 ## 1. 为什么需要它
 

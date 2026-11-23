@@ -112,7 +112,7 @@ pwsh ./tools/restore-data.ps1 -BackupDir <某次备份目录> -AppDir <目标发
 - 真实 ESP8266 硬件验收六项（连续运行 / 拔插 / 异常报文 / 指令下发 / 断电恢复 / Watchdog 重启后串口恢复）已于 2026-11-22 两轮执行、六项全过（带备注）；依赖 DTR/RTS 的设备行为未验证。
 - 无开发环境的 Windows 干净机已验证（2026-11-22，解压启动、设置落盘、双开拦截、Watchdog 重启均通过）；本机写盘限制的根因是低完整性目录，与安全软件无关（release-notes §5.4）。
 - 回滚与数据库冷备份演练已于 2026-11-22 执行并通过，**见 release-checklist §9**。
-- 24 小时连续观察已完成（PASS-WITH-NOTES），见 release-checklist §12 D。
+- 24 小时连续观察已完成（PASS-WITH-NOTES），见 archive/release-walkthrough-2026-11.md D。
 - 手工删除 `-wal` 未验证，不做此操作指引。
 
 ## 依据表
@@ -120,21 +120,21 @@ pwsh ./tools/restore-data.ps1 -BackupDir <某次备份目录> -AppDir <目标发
 | # | 关键结论 | 出处 |
 | --- | --- | --- |
 | 1 | 发布包 / 版本 / 构建来源 / tag | docs/release-notes-v1.2.0.md §8 |
-| 2 | 定位（串口采集 + 曲线 + ISA-18.2 + SQLite） | docs/next-steps-v1.2.md §2.1 |
+| 2 | 定位（串口采集 + 曲线 + ISA-18.2 + SQLite） | docs/archive/next-steps-v1.2.md §2.1 |
 | 3 | 便携 zip / self-contained / 解压即用 | release-notes §6；tools/package.ps1:76；release-checklist §7 |
 | 4 | 首启自动生成 `settings.json`，默认值来自 `appsettings.json` | SmartEdgeHMI/Core/Services/SettingsService.cs:40-67,91-122 |
-| 5 | `ComPort` 默认空=未选择 | release-notes §3；release-checklist §12 A |
+| 5 | `ComPort` 默认空=未选择 | release-notes §3；archive/release-walkthrough-2026-11.md A |
 | 6 | 主界面出现即就绪 / 启动完成日志 | SmartEdgeHMI/App.xaml.cs:197-199 |
 | 7 | 双开拦截文案 | App.xaml.cs:139-145 |
 | 8 | Watchdog 10s 超时重启 / 同目录定位主程序 | SmartEdgeHMI.Watchdog/Program.cs:20,42-65；release-checklist §6 |
-| 9 | 日志三级回退 / 首行写落点 / 滚动与保留 | App.xaml.cs:72-77,82,95-112；release-checklist §12 A/B |
+| 9 | 日志三级回退 / 首行写落点 / 滚动与保留 | App.xaml.cs:72-77,82,95-112；archive/release-walkthrough-2026-11.md A/B |
 | 10 | 启动校验 9 参数 / 弹窗 / 退出码 1 | App.xaml.cs:167-180；Common/AppSettingsValidator.cs:11-36 |
 | 11 | 端口列表启动时枚举一次 | ViewModels/ConnectionViewModel.cs:59-60；Protocols/Transports/Serial/SerialPortService.cs:46 |
 | 12 | 波特率档位 | Common/AppConstants.cs:6-9 |
 | 13 | 设备侧 115200 8N1 / 从站 1 / FC03、FC06 | docs/hardware-validation.md §2,§3,§4 |
 | 14 | JSON 串口模式仅模拟器提供 | hardware-validation.md §1 |
 | 15 | `Slave ID` 框默认 1 | Views/Controls/ConnectionBarView.xaml:66-100；ConnectionViewModel.cs:37 |
-| 16 | 「请先选择串口」/ 状态文案与红绿灯 | ConnectionViewModel.cs:39,80-84,101-110,186-189,220-224；Resources/Strings.zh-CN.xaml:10-14；release-checklist §12 A |
+| 16 | 「请先选择串口」/ 状态文案与红绿灯 | ConnectionViewModel.cs:39,80-84,101-110,186-189,220-224；Resources/Strings.zh-CN.xaml:10-14；archive/release-walkthrough-2026-11.md A |
 | 17 | 「打开串口失败」/「链路故障 [口]」 | ConnectionViewModel.cs:200-204；SerialPortService.cs:70-75 |
 | 18 | 5 秒稳定期后才转「已连接」 | SerialPortService.cs:26,112-116 |
 | 19 | 连接/断开同一按钮 | ConnectionBarView.xaml:102-118；ConnectionViewModel.cs:208-229 |
@@ -146,10 +146,10 @@ pwsh ./tools/restore-data.ps1 -BackupDir <某次备份目录> -AppDir <目标发
 | 25 | 防抖 3 秒保存并下发 / 连接成功自动下发 | AppConstants.cs:12；ViewModels/MonitorViewModel.cs:66-72,180-228 |
 | 26 | JSON Configure / Modbus 阈值×10 下发 | Protocols/DeviceCommunicationCoordinator.cs:51-83 |
 | 27 | 报警由错误码触发；Bad 帧不判 | Core/Domain/MachineState/AlarmStateMachine.cs:51-65；Common/Enums.cs:19-29 |
-| 28 | 复位指令格式 / 模拟器已实测 / 真实硬件未验收 | DeviceCommunicationCoordinator.cs:86-116；release-checklist §10,§12 |
+| 28 | 复位指令格式 / 模拟器已实测 / 真实硬件未验收 | DeviceCommunicationCoordinator.cs:86-116；release-checklist §10；archive/release-walkthrough-2026-11.md |
 | 29 | 四状态语义与转换、恢复去抖默认 3 | AlarmStateMachine.cs:49-113,162-177；Enums.cs:47-53；appsettings.json:17-19 |
 | 30 | 行配色 / 单行确认按钮可见条件 | Views/Controls/AlarmLogTabsView.xaml:21-35,73-81；Views/Converters/AlarmAckVisibilityConverter.cs:12-15 |
-| 31 | 一键确认全部可用条件 / 恢复后变灰 | AlarmLogTabsView.xaml:129-138；MonitorViewModel.cs:127-146；release-checklist §12 C |
+| 31 | 一键确认全部可用条件 / 恢复后变灰 | AlarmLogTabsView.xaml:129-138；MonitorViewModel.cs:127-146；archive/release-walkthrough-2026-11.md C |
 | 32 | 报警列表裁剪 / 系统日志 ERROR 红色 | ViewModels/AlarmHistoryViewModel.cs:52-53；AlarmLogTabsView.xaml:101-110 |
 | 33 | 数据库文件位置与表名 / 索引与迁移 | Data/SqliteConnectionFactory.cs:36-39,59-131 |
 | 34 | WAL 持久化 / checkpoint 自调度 / 库不缩小 | SqliteConnectionFactory.cs:20-25；docs/data-retention.md §4 |
@@ -159,7 +159,7 @@ pwsh ./tools/restore-data.ps1 -BackupDir <某次备份目录> -AppDir <目标发
 | 38 | 升级方式与升级前备份 / 回滚步骤 | release-notes §6,§7 |
 | 39 | 回滚/冷备份演练已执行 | release-checklist §9 |
 | 40 | 无自动选串口 | release-checklist §5 |
-| 41 | 无 Modbus TCP/MQTT/CAN/OTA/云平台 | docs/next-steps-v1.2.md §7 |
-| 42 | 硬件验收六项已执行（两轮全过）/ 干净机已验证；未覆盖边界见 release-notes §5 | release-notes §5；hardware-validation-2026-11-22.md |
-| 43 | 低完整性目录导致 `%LOCALAPPDATA%` 写失败（非产品缺陷，非安全软件拦截）/ 保存失败日志与影响 | release-checklist §12；release-notes §5.4；SettingsService.cs:53,64；ConnectionViewModel.cs:165；MonitorViewModel.cs:219 |
-| 44 | WAL 约 4.13 MB 自限 | data-retention.md §4；release-checklist §12 D |
+| 41 | 无 Modbus TCP/MQTT/CAN/OTA/云平台 | docs/archive/next-steps-v1.2.md §7 |
+| 42 | 硬件验收六项已执行（两轮全过）/ 干净机已验证；未覆盖边界见 release-notes §5 | release-notes §5；docs/archive/hardware-validation-2026-11-22.md |
+| 43 | 低完整性目录导致 `%LOCALAPPDATA%` 写失败（非产品缺陷，非安全软件拦截）/ 保存失败日志与影响 | archive/release-walkthrough-2026-11.md；release-notes §5.4；SettingsService.cs:53,64；ConnectionViewModel.cs:165；MonitorViewModel.cs:219 |
+| 44 | WAL 约 4.13 MB 自限 | data-retention.md §4；archive/release-walkthrough-2026-11.md D |

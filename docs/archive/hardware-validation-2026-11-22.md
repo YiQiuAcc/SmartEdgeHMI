@@ -1,6 +1,8 @@
-# ESP8266 真实硬件验收记录 · 2026-11-22
+# ESP8266 真实硬件验收记录 · 2026-11-22（已归档）
 
-> 依据模板 [hardware-validation.md](hardware-validation.md) 执行。这是 P0-06「真实硬件验收」的第一轮完整执行记录。
+> 归档：v1.2.0 真机验收记录。当前模板与状态见 [../hardware-validation.md](../hardware-validation.md)。
+
+> 依据模板 [hardware-validation.md](../hardware-validation.md) 执行。这是 P0-06「真实硬件验收」的第一轮完整执行记录。
 > 执行人：lead。设备：NodeMCU v2（ESP8266 + CH340）。
 
 ## 1. 环境

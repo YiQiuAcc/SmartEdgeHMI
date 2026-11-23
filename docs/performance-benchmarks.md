@@ -1,6 +1,6 @@
 # 性能基准实测报告 (BenchmarkDotNet)
 
-> 生成日期: 2026-11-17 · 任务来源: `.workbuddy/inbox/TASK-003.md`
+> 生成日期: 2026-11-17 · 任务来源: 本机归档 `workbuddy-2026-11-23/inbox/TASK-003.md`（不入库）
 > 本文所有数字均直接取自 `BenchmarkDotNet.Artifacts/results/` 下的原始产物，未做任何手工修改；
 > 标注"换算"的列由原始数字除法计算得出（公式随列注明）。
 
